@@ -81,17 +81,17 @@ files it was given rather than guarding against other software on the computer.
 
 | Tool | What it does |
 |---|---|
-| `list_commands` | Every command (id, label, menu, shortcut, params doc), optionally filtered |
+| `list_commands` | Bare: the command families (name, one line, count, command names) in a few KB; `{filter}`: matching commands in full (id, label, menu, shortcut, params doc, enabled, actsOn), `brief` for id and params only; `{id}`: one command |
 | `run_command` | Run one command: `{command, params}` — every menu item, ribbon button and gesture is a command |
 | `batch` | Run several commands in order and stop at the first error |
 | `new_presentation`, `open_presentation`, `save_presentation`, `export` | Files: native `.deckcraft`, PowerPoint `.pptx`, PDF (slides, notes pages, handouts), PNG/JPEG, outline, animated GIF (size, seconds per slide, loop, slides) |
-| `inspect_document`, `inspect_slide` | Structure of the deck / one slide (shapes, text, placeholders, animations) |
-| `render_slide` | A slide as an image the model can look at |
+| `inspect_document`, `inspect_slide` | Structure of the deck / one slide (shapes, text, placeholders; animations as `{count, clickSteps}`, the full list with `animations: true` or `animation.get`) |
+| `render_slide` | A slide as an image the model can look at (image content; a client that cannot read images: `export {path, format: png, slide}` and view the file) |
 | `add_slide`, `go_to_slide` | Slides by layout |
 | `add_shape`, `add_text_box`, `set_text` | Shapes and text |
 | `insert_picture`, `insert_table`, `insert_chart` | Content |
 | `select`, `pointer`, `select_tool`, `key`, `type_text` | The same selection, mouse and keyboard paths as the UI |
-| `screenshot` | The whole window, UI included (connected mode) |
+| `screenshot` | The whole window, UI included (connected mode); image content, or with `path` the PNG is written there and the answer is text `{path, width, height}` for a client that cannot read images |
 | `call_app` | Any [control protocol](control-protocol.md) method (connected mode) |
 
 A tool refuses an argument that is not in its schema (`insert_chart: unknown argument "data" (expected: categories, series, title, type)`). Keys inside `run_command`'s `params` are that command's parameters, and a command refuses a key it doesn't take, naming the ones it does (`` `shape.insert` was given `shape`, which it doesn't take. `shape.insert` takes {preset: …, rect: …} ``). An unknown command id names the commands like it (`` unknown command `new`; commands named like it: file.new, slide.new ``), and a command that is not available says how to make it so (`` nothing selected: edit.select {"ids": […]} selects shapes, or pass `ids` ``).

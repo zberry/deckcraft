@@ -336,6 +336,7 @@ fn discovery_costs_fewer_calls() {
         "insert.table",
         "design.palette",
         "placeholders",
+        "cannot read images",
     ] {
         assert!(instr.contains(needle), "instructions should mention {needle}");
     }
@@ -348,6 +349,71 @@ fn discovery_costs_fewer_calls() {
     let mut keys: Vec<&str> = item.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(keys, ["id", "params"], "{item}");
+}
+
+/// W5: a bare list_commands cost 95 KB (40 KB with brief) and an agent paid it twice per run. Bare
+/// now answers the command families in under 6 KB; `id` answers one command's full entry; an
+/// unknown `id` gets the engine's "commands named like it" hint.
+#[test]
+fn list_commands_bare_answers_families_and_id_answers_one_command() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    let r = call(&mut s, 1, "tools/call", json!({"name": "list_commands", "arguments": {}}));
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    let text = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.len() < 6000, "bare list_commands is {} bytes", text.len());
+    let families: Value = serde_json::from_str(text).unwrap();
+    // Every family of every command (the part before the dot) is there, with its count and its
+    // commands' names after the dot.
+    let every = tool(&mut s, "list_commands", json!({"filter": ".", "brief": true}));
+    let every = every.as_array().unwrap();
+    assert!(every.len() > 200, "{}", every.len());
+    for c in every {
+        let id = c["id"].as_str().unwrap();
+        let (fam, name) = id.split_once('.').unwrap();
+        let f = families.as_array().unwrap().iter().find(|f| f["family"] == fam).unwrap_or_else(|| panic!("family {fam} missing: {text}"));
+        let names: Vec<&str> = f["commands"].as_str().unwrap().split_whitespace().collect();
+        assert!(names.contains(&name), "{id} missing from {f}");
+        assert_eq!(f["count"].as_u64().unwrap() as usize, names.len(), "{f}");
+    }
+    let slide = families.as_array().unwrap().iter().find(|f| f["family"] == "slide").unwrap();
+    assert!(slide["about"].as_str().is_some_and(|d| !d.is_empty()), "{slide}");
+    // brief without a filter is still the families listing.
+    let b = tool(&mut s, "list_commands", json!({"brief": true}));
+    assert_eq!(b, families);
+    // One command, in full.
+    let one = tool(&mut s, "list_commands", json!({"id": "table.style"}));
+    assert_eq!(one["id"], "table.style", "{one}");
+    assert!(one["params"].as_str().is_some() && one["enabled"].is_boolean() && one["label"].is_string(), "{one}");
+    assert!(one["actsOn"].as_str().unwrap_or("").contains("`id`"), "{one}");
+    // An unknown id: the engine's hint, not an empty list.
+    let r = call(&mut s, 2, "tools/call", json!({"name": "list_commands", "arguments": {"id": "table.styl"}}));
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    let msg = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(msg.contains("unknown command `table.styl`") && msg.contains("like it") && msg.contains("table.style"), "{msg}");
+    let r = call(&mut s, 3, "tools/call", json!({"name": "list_commands", "arguments": {"id": "add_shape"}}));
+    let msg = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(r["result"]["isError"] == true && msg.contains("tool"), "{msg}");
+    // A filter still answers matching commands as before.
+    let cmds = tool(&mut s, "list_commands", json!({"filter": "table.style"}));
+    assert_eq!(cmds.as_array().unwrap().len(), 1, "{cmds}");
+}
+
+/// W6: inspect_slide answers animations as {count, clickSteps}; `animations: true` embeds the list.
+#[test]
+fn inspect_slide_summarises_animations_unless_asked() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    let id = tool(&mut s, "add_shape", json!({"preset": "rect", "x": 10, "y": 10, "w": 100, "h": 50}))["id"].as_u64().unwrap();
+    tool(&mut s, "run_command", json!({"command": "animation.add", "params": {"ids": [id], "effect": "fade", "start": "onClick"}}));
+    tool(
+        &mut s,
+        "run_command",
+        json!({"command": "animation.add", "params": {"ids": [id], "effect": "zoom", "class": "exit", "start": "afterPrevious"}}),
+    );
+    let sl = tool(&mut s, "inspect_slide", json!({}));
+    assert_eq!(sl["animations"], json!({"count": 2, "clickSteps": 1}), "{sl}");
+    let full = tool(&mut s, "inspect_slide", json!({"animations": true}));
+    assert_eq!(full["animations"].as_array().map(Vec::len), Some(2), "{full}");
 }
 
 /// E5: a batch item can be named with `as`, and a later item's params can refer to its answer
@@ -386,4 +452,60 @@ fn batch_items_can_reference_earlier_results() {
     );
     let text = bad["result"]["content"][0]["text"].as_str().unwrap();
     assert!(bad["result"]["isError"] == true && text.contains("$nope"), "{text}");
+}
+
+/// A stand-in for the desktop app: records the control-channel calls and answers `ui.screenshot`
+/// as the app does (a base64 PNG, or `{path, width, height}` once a path is given).
+struct FakeApp {
+    calls: std::rc::Rc<std::cell::RefCell<Vec<(String, Value)>>>,
+}
+
+impl crate::backend::Backend for FakeApp {
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.calls.borrow_mut().push((method.to_string(), params.clone()));
+        match method {
+            "ui.screenshot" => Ok(match params.get("path").and_then(Value::as_str) {
+                Some(p) => json!({"path": p, "width": 1280, "height": 800}),
+                None => json!({"png": "iVBORw0KGgo=", "width": 1280, "height": 800}),
+            }),
+            other => Err(format!("unknown method `{other}`")),
+        }
+    }
+    fn has_ui(&self) -> bool {
+        true
+    }
+    fn describe(&self) -> String {
+        "stand-in app".into()
+    }
+}
+
+/// W4: `screenshot` answered image content only, which an agent behind a text bridge cannot see.
+/// With `path` the PNG is written there and the answer is text `{path, width, height}`; headless
+/// still refuses clearly and writes nothing. (The connected backend is a loopback socket; the
+/// stand-in checks the argument plumbing and the answer shape.)
+#[test]
+fn screenshot_with_a_path_answers_text_and_headless_refuses() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    let path = std::env::temp_dir().join(format!("deckcraft-mcp-shot-{}.png", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let r = call(&mut s, 1, "tools/call", json!({"name": "screenshot", "arguments": {"path": path.to_string_lossy()}}));
+    let msg = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(r["result"]["isError"] == true && msg.contains("desktop app") && msg.contains("export"), "{msg}");
+    assert!(!path.exists(), "headless must write nothing");
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+    let mut s = Server::new(Box::new(FakeApp { calls: calls.clone() }));
+    let r = call(&mut s, 2, "tools/call", json!({"name": "screenshot", "arguments": {"path": "shots/window.png"}}));
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    let content = r["result"]["content"].as_array().unwrap();
+    assert!(content.iter().all(|c| c["type"] == "text"), "text, not an image: {r}");
+    let v: Value = serde_json::from_str(content[0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(v, json!({"path": "shots/window.png", "width": 1280, "height": 800}));
+    assert_eq!(calls.borrow().last().unwrap(), &("ui.screenshot".to_string(), json!({"path": "shots/window.png"})));
+    // Without a path: image content, as before.
+    let r = call(&mut s, 3, "tools/call", json!({"name": "screenshot", "arguments": {}}));
+    assert_eq!(r["result"]["content"][0]["type"], "image", "{r}");
+    assert_eq!(calls.borrow().last().unwrap().1, json!({"base64": true}));
+    let tools = call(&mut s, 4, "tools/list", json!({}));
+    let shot = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "screenshot").unwrap();
+    assert!(shot["inputSchema"]["properties"].get("path").is_some() && shot["description"].as_str().unwrap().contains("path"), "{shot}");
 }
