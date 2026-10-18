@@ -93,7 +93,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "batch",
             "Run several commands",
-            "Run commands in order; stops at the first error unless keepGoing. Returns each result. Items may name a tool (add_shape, add_text_box, go_to_slide…) instead of a command, with the tool's arguments as params. An item with `as: \"box\"` can be referred to by a later item's params as \"$box\" (its id), so insert, connect and animate fit in one batch.",
+            "Run commands in order; stops at the first error unless keepGoing. Returns each result. Items may name a tool (add_shape, add_text_box, go_to_slide…) instead of a command, with the tool's arguments as params; a tool that answers an image (render_slide) is refused here: call it on its own. An item with `as: \"box\"` can be referred to by a later item's params as \"$box\" (its id), so insert, connect and animate fit in one batch.",
             obj(
                 json!({"commands": {"type": "array", "items": obj(json!({"command": string("id"), "params": {"type": "object"}, "as": string("Name for this item's answer, for \"$name\" in later params")}), &["command"])}, "keepGoing": boolean("Continue after errors")}),
                 &["commands"],
@@ -230,7 +230,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "insert_picture",
             "Insert picture",
-            "Insert a picture from a file path or base64 data, optionally at a box.",
+            "Insert a picture from a file path or base64 data, optionally at a box (x, y, w and h together; none for the default placement).",
             obj(
                 json!({"path": string("Image file path"), "data": string("Base64 image data (instead of path)"), "name": string("File name for data"), "x": num("Left"), "y": num("Top"), "w": num("Width"), "h": num("Height")}),
                 &[],
@@ -240,7 +240,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "insert_table",
             "Insert table",
-            "Insert a table with rows×cols and optional cell text (data: rows of strings).",
+            "Insert a table with rows×cols and optional cell text (data: rows of strings), optionally at a box (x, y, w and h together; none for the default placement).",
             obj(
                 json!({"rows": int("Rows"), "cols": int("Columns"), "data": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}, "x": num("Left"), "y": num("Top"), "w": num("Width"), "h": num("Height")}),
                 &["rows", "cols"],
@@ -302,7 +302,8 @@ pub fn tool_definitions() -> Vec<Value> {
                 "Screenshot of the whole DeckCraft window (UI included), as image content; with `path` the PNG is written there and the answer is text {{path, width, height}}, for a client that cannot read images.{APP_ONLY}"
             ),
             obj(json!({"path": string("Write the PNG to this file and answer {path, width, height} as text")}), &[]),
-            true,
+            // With `path` it writes a file, so it is not read-only (like export).
+            false,
         ),
         tool(
             "call_app",
@@ -359,12 +360,17 @@ fn substitute(v: &mut Value, named: &std::collections::HashMap<String, Value>) -
     Ok(())
 }
 
-/// A command id or a tool name, run either way, as a command's answer.
+/// A command id or a tool name, run either way, as a command's answer. A batch answers text, so a
+/// tool that answers an image (render_slide, screenshot without `path`) is refused rather than
+/// reported ok with the image dropped.
 fn run_either(b: &mut dyn Backend, id: &str, params: Value) -> Result<Value, String> {
     if !is_tool(id) {
         return exec(b, id, params);
     }
     let r = call_tool(b, id, &params);
+    if r.content.iter().any(|c| c.get("type").and_then(Value::as_str) == Some("image")) {
+        return Err(format!("`{id}` answers an image, which a batch cannot carry (it answers one text array): call {id} on its own"));
+    }
     let text = r.content.iter().filter_map(|c| c.get("text").and_then(Value::as_str)).collect::<Vec<_>>().join("\n");
     if r.is_error { Err(text) } else { Ok(serde_json::from_str(&text).unwrap_or(Value::String(text))) }
 }
@@ -374,18 +380,30 @@ fn f(a: &Value, k: &str) -> Option<f64> {
 }
 
 /// The tool's `x`, `y`, `w`, `h` as the command's `rect`; the four keys themselves are taken out,
-/// because the command refuses keys it doesn't take.
-fn with_rect(a: &Value) -> Value {
+/// because the command refuses keys it doesn't take. Some of the four but not all (or one that is
+/// not a finite number) is refused, not dropped for the default placement; none keeps it.
+fn with_rect(a: &Value) -> Result<Value, String> {
+    const KEYS: [&str; 4] = ["x", "y", "w", "h"];
+    let given: Vec<&str> = KEYS.into_iter().filter(|k| a.get(k).is_some_and(|v| !v.is_null())).collect();
+    let nums: Vec<f64> = KEYS.into_iter().filter_map(|k| f(a, k)).filter(|v| v.is_finite()).collect();
     let mut p = a.clone();
-    if let Some(o) = p.as_object_mut() {
-        if let (Some(x), Some(y), Some(w), Some(h)) = (f(a, "x"), f(a, "y"), f(a, "w"), f(a, "h")) {
-            o.insert("rect".into(), json!([x, y, w, h]));
-        }
-        for k in ["x", "y", "w", "h"] {
-            o.remove(k);
-        }
+    let Some(o) = p.as_object_mut() else { return Ok(p) };
+    for k in KEYS {
+        o.remove(k);
     }
-    p
+    if given.is_empty() {
+        return Ok(p);
+    }
+    match nums.as_slice() {
+        [x, y, w, h] => {
+            o.insert("rect".into(), json!([x, y, w, h]));
+            Ok(p)
+        }
+        _ => Err(format!(
+            "x, y, w and h go together: give all four or none (got {}, as finite numbers in points); with none the shape takes the default placement",
+            given.join(", ")
+        )),
+    }
 }
 
 /// `index` and `slide` name the same slide on every slide-taking tool: whichever the agent wrote
@@ -577,8 +595,8 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
             ToolResult::json(&v)
         }
         "set_text" => wrap(exec(b, "text.set", a)),
-        "insert_picture" => wrap(exec(b, "insert.picture", with_rect(&a))),
-        "insert_table" => wrap(exec(b, "insert.table", with_rect(&a))),
+        "insert_picture" => wrap(with_rect(&a).and_then(|p| exec(b, "insert.picture", p))),
+        "insert_table" => wrap(with_rect(&a).and_then(|p| exec(b, "insert.table", p))),
         "insert_chart" => wrap(exec(b, "insert.chart", a)),
         "select" => wrap(exec(b, "edit.select", a)),
         "pointer" => wrap(b.call("ui.pointer", a).map(|v| with_selected(b, v, true))),

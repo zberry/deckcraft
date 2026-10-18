@@ -504,11 +504,20 @@ pub(crate) fn with_param(p: &Value, key: &str, v: Value) -> Value {
 
 /// Targets: `ids` / `id` params, else the selection.
 pub(crate) fn targets(s: &Session, p: &Value) -> Result<Vec<ShapeId>> {
-    if let Some(ids) = ids_param(p, "ids")? {
+    if let Some(raw) = p.get("ids").and_then(Value::as_array) {
         // An explicit empty list is a caller's mistake, not "the selection": acting on the
         // selection instead was a trap an agent fell into (#298).
-        if ids.is_empty() {
+        if raw.is_empty() {
             return Err(EngineError::Other("`ids` is empty: pass the shape ids, or leave `ids` out to act on the selected shapes".into()));
+        }
+        // ids_param refuses the first entry that is no shape id, naming it; a list that still
+        // parses to nothing is told what it held.
+        let ids = ids_param(p, "ids")?.unwrap_or_default();
+        if ids.is_empty() {
+            return Err(EngineError::Other(format!(
+                "`ids` has no valid shape id: {}: shape ids are whole numbers from 0 up, as shape.insert and slide.inspect answer them",
+                Value::Array(raw.clone())
+            )));
         }
         return Ok(ids);
     }
@@ -659,11 +668,13 @@ pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut
 }
 
 /// [`edit_shapes`] for edits a locked object refuses (move, size, rotate, flip, reshape, crop):
-/// locked targets are left out, and when every target is locked nothing changes.
+/// locked targets are left out, and when every target is locked nothing changes. The lock is
+/// looked up wherever the shape is, like the edit itself, so a locked shape on another slide
+/// stays put.
 pub(crate) fn edit_geometry(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<Value> {
     let ids = targets(s, p)?;
     let st = s.doc()?;
-    let free: Vec<u32> = ids.iter().filter(|id| !st.shape(**id).is_some_and(|x| x.locked)).map(|id| id.0).collect();
+    let free: Vec<u32> = ids.iter().filter(|id| !st.shape_anywhere(**id).is_some_and(|(x, _)| x.locked)).map(|id| id.0).collect();
     if !ids.is_empty() && free.is_empty() {
         return Err(bad(cmd, "the object is locked"));
     }

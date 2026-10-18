@@ -74,6 +74,7 @@ fn run_help_says_what_the_ids_do_not() {
         "Shape ids are unique in the presentation;",
         "A command that adds a shape (shape.insert, insert.textBox, insert.table…) selects it.",
         "format.* acts on the selected text or shapes",
+        "skips the --save and --export still pending; it does not undo files an earlier command wrote",
     ] {
         assert!(out.contains(fact), "{fact}: {out}");
     }
@@ -172,6 +173,11 @@ fn a_cmd_that_does_not_parse_says_how_it_was_read_and_runs_nothing() {
     assert!(!deck.exists(), "nothing ran, so nothing was saved");
     let err = stderr(&cli(&["run", "--sample", "--cmd", "slide.new=[1]"]));
     assert!(err.contains("--cmd 1 of 1 was read as command `slide.new` with parameters `[1]`") && err.contains("not a JSON object"), "{err}");
+    // Every --cmd is read before the presentation is opened, so a malformed one is reported even
+    // when --in cannot be opened, and file.open/file.new run only once every --cmd parses.
+    let missing = dir.join("missing.deckcraft");
+    let err = stderr(&cli(&["run", "--in", missing.to_str().unwrap(), "--cmd", "slide.new=[1]"]));
+    assert!(err.contains("--cmd 1 of 1 was read as command `slide.new` with parameters `[1]`") && err.contains("Nothing ran."), "{err}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

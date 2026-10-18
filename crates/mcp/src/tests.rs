@@ -34,6 +34,25 @@ fn handshake_and_tool_list() {
     assert!(s.handle_line("{}").is_some());
 }
 
+/// readOnlyHint is true only for tools that never write: screenshot writes a PNG when given
+/// `path`, like export, while render_slide and the inspectors only answer.
+#[test]
+fn read_only_hints_match_what_the_tools_write() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    let tools = call(&mut s, 2, "tools/list", json!({}));
+    let hint = |name: &str| {
+        tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == name).unwrap_or_else(|| panic!("{name}"))["annotations"]
+            ["readOnlyHint"]
+            .clone()
+    };
+    for n in ["screenshot", "export", "save_presentation", "batch"] {
+        assert_eq!(hint(n), false, "{n} writes");
+    }
+    for n in ["render_slide", "inspect_slide", "inspect_document", "list_commands"] {
+        assert_eq!(hint(n), true, "{n} only answers");
+    }
+}
+
 #[test]
 fn agent_builds_a_deck() {
     let mut s = Server::new(Box::new(Headless::new()));
@@ -296,6 +315,53 @@ fn tools_with_x_y_w_h_place_the_shape() {
     );
     let text = bad["result"]["content"][0]["text"].as_str().unwrap();
     assert!(!text.contains("doesn't take"), "x/y/w/h must not reach the engine: {text}");
+}
+
+/// A batch answers one JSON array of text, so an item that answers an image (render_slide) would
+/// report ok with the image gone: it is refused and told to run on its own; the other items run.
+#[test]
+fn a_batch_refuses_an_item_that_answers_an_image() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    let r =
+        call(&mut s, 5, "tools/call", json!({"name": "batch", "arguments": {"commands": [{"command": "render_slide"}, {"command": "add_slide"}]}}));
+    assert_eq!(r["result"]["isError"], true, "{r}");
+    let text = r["result"]["content"][0]["text"].as_str().unwrap();
+    let out: Value = serde_json::from_str(text).expect("a JSON array");
+    assert_eq!(out[0]["ok"], false, "{out}");
+    assert!(out[0]["error"].as_str().unwrap().contains("call render_slide on its own"), "{out}");
+    assert!(out[1].is_null(), "stopped at the refusal: {out}");
+    let out = tool(
+        &mut s,
+        "batch",
+        json!({"commands": [{"command": "render_slide", "params": {"slide": 0}}, {"command": "add_slide"}], "keepGoing": true}),
+    );
+    assert_eq!(out[0]["ok"], false, "{out}");
+    assert_eq!(out[1]["ok"], true, "{out}");
+}
+
+/// `x`, `y`, `w`, `h` place the shape only together: some of them is refused by name rather than
+/// dropped for the default placement, and none of them keeps the default placement.
+#[test]
+fn a_partial_x_y_w_h_is_refused_not_dropped() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    tool(&mut s, "add_slide", json!({"layout": "blank"}));
+    let before = tool(&mut s, "inspect_slide", json!({}))["shapes"].as_array().map_or(0, Vec::len);
+    for args in [json!({"rows": 2, "cols": 2, "x": 100, "y": 200}), json!({"rows": 2, "cols": 2, "x": 100, "y": 200, "w": "300", "h": 80})] {
+        let r = call(&mut s, 5, "tools/call", json!({"name": "insert_table", "arguments": args}));
+        assert_eq!(r["result"]["isError"], true, "{r}");
+        let text = r["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("x, y, w and h go together") && text.contains("all four or none"), "{text}");
+    }
+    let r = call(&mut s, 6, "tools/call", json!({"name": "insert_picture", "arguments": {"data": "AAAA", "name": "x.png", "x": 1, "y": 2}}));
+    let text = r["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("x, y, w and h go together"), "{text}");
+    let after = tool(&mut s, "inspect_slide", json!({}))["shapes"].as_array().map_or(0, Vec::len);
+    assert_eq!(after, before, "a refused placement inserts nothing");
+    // None of the four: the default placement.
+    let t = tool(&mut s, "insert_table", json!({"rows": 2, "cols": 2}));
+    assert!(t["id"].as_u64().is_some() && t["rect"].is_array(), "{t}");
 }
 
 /// Phase-2 findings: `set_text` reaches a table cell with `cell`, and `list_commands` says what a
