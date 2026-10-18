@@ -1180,7 +1180,7 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let cell = p.get("cell").and_then(Value::as_array).and_then(|a| Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize)));
     let inherited = inherited_aligns(s, id);
-    edit_shapes(s, &json!({"id": id}), "text.set", |sh| {
+    let r = edit_shapes(s, &json!({"id": id}), "text.set", |sh| {
         let target = match (&mut sh.kind, cell) {
             (ShapeKind::Table(t), Some((r, c))) => t.cell_mut(r, c).map(|x| &mut x.text),
             (ShapeKind::Table(_), None) => None,
@@ -1207,7 +1207,7 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     fit_text_box(s, id)?;
-    ok()
+    Ok(r)
 }
 
 fn get(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1219,7 +1219,7 @@ fn get(s: &mut Session, p: &Value) -> Result<Value> {
             None => st.selection.shapes.first().copied().ok_or_else(|| bad("text.get", "missing `id`"))?,
         },
     };
-    let sh = st.shape(id).ok_or_else(|| bad("text.get", "no such shape"))?;
+    let (sh, _) = st.shape_anywhere(id).ok_or_else(|| super::no_such_shape(&st.doc, &st.selection, id, "text.get"))?;
     let t = sh.text.clone().unwrap_or_default();
     Ok(json!({"text": t.text(), "paragraphs": t.paragraphs.iter().map(|p| json!({"level": p.level, "text": p.text()})).collect::<Vec<_>>()}))
 }
