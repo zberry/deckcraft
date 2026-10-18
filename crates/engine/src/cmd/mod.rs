@@ -431,6 +431,15 @@ pub(crate) const NO_ID_SPACE: &str = "the presentation has used every object id 
 pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
+/// A slide index past the end, naming the range that is valid (`n` is the slide count).
+pub(crate) fn no_slide(cmd: &str, i: usize, n: usize) -> EngineError {
+    let has = match n {
+        0 => "no slides".to_string(),
+        1 => "1 slide (index 0)".to_string(),
+        n => format!("{n} slides (indices 0 through {})", n - 1),
+    };
+    bad(cmd, format!("no slide at index {i}: the presentation has {has}"))
+}
 pub(crate) fn f64_param(p: &Value, key: &str) -> Option<f64> {
     p.get(key).and_then(Value::as_f64).filter(|v| v.is_finite())
 }
@@ -460,6 +469,10 @@ pub(crate) fn id_param(p: &Value, key: &str, cmd: &str) -> Result<Option<ShapeId
             .map(|v| Some(ShapeId(v)))
             .ok_or_else(|| bad(cmd, format!("`{key}` is not a valid shape id: {v}"))),
     }
+}
+/// A box as commands answer it: `[x, y, w, h]` in slide points.
+pub(crate) fn rect_json(x: &Xfrm) -> Value {
+    json!([x.x, x.y, x.w, x.h])
 }
 pub(crate) fn ids_param(p: &Value, key: &str) -> Option<Vec<ShapeId>> {
     p.get(key).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).filter_map(|v| u32::try_from(v).ok()).map(ShapeId).collect())

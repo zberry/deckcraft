@@ -14,7 +14,15 @@ use crate::{Result, Session, Target};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        cmd!("design.theme", "Themes", ["Design", "Themes"], None, "{name} (see design.themes)", has_doc, theme),
+        cmd!(
+            "design.theme",
+            "Themes",
+            ["Design", "Themes"],
+            None,
+            "{name} (see design.themes) → the palette, as design.palette answers it",
+            has_doc,
+            theme
+        ),
         cmd!(
             "design.browseTheme",
             "Browse for Themes…",
@@ -71,7 +79,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Header and Footer…",
             ["Insert", "Text"],
             None,
-            "{date?: bool, dateText?: fixed text, slideNumber?: bool, footer?: bool, footerText?, hideOnTitle?: bool, all?: bool (default true)}",
+            "{date?: bool, dateText?: fixed text, slideNumber?: bool, footer?: bool, footerText?, hideOnTitle?: bool, all?: bool (default true; false: only the current slide)} → {slides: n, default: true} (the flags become the presentation's default, so slides added later get the same footer and number)",
             has_doc,
             header_footer
         ),
@@ -151,7 +159,8 @@ fn theme(s: &mut Session, p: &Value) -> Result<Value> {
         m.color_map = vec![];
         Ok(())
     })?;
-    Ok(json!({"theme": name}))
+    // The palette the theme brought, as design.palette answers it.
+    palette(s, &json!({}))
 }
 
 fn browse_theme(s: &mut Session, p: &Value) -> Result<Value> {
@@ -874,81 +883,85 @@ fn header_footer(s: &mut Session, p: &Value) -> Result<Value> {
         let date_given = str_param(p, "dateText").is_some();
         let all = bool_or(p, "all", true);
         let list: Vec<usize> = if all { (0..doc.slides.len()).collect() } else { vec![sel.slide] };
+        let n = list.len();
         for i in list {
-            let Some(layout) = doc.slides.get(i).map(|x| x.layout) else { continue };
-            let lay = doc.layout(layout).map(|(_, l)| l.clone());
-            let is_title = lay.as_ref().is_some_and(|l| l.kind == deckcraft_model::LayoutType::Title);
-            let want = |k: PhType| {
-                !(hf.hide_on_title && is_title)
-                    && match k {
-                        PhType::Date => hf.date,
-                        PhType::SlideNum => hf.slide_number,
-                        PhType::Footer => hf.footer,
-                        _ => false,
-                    }
-            };
-            let mut new_ids = vec![];
-            for _ in 0..3 {
-                new_ids.push(ShapeId(doc.alloc_id().ok_or_else(|| bad("design.headerFooter", NO_ID_SPACE))?));
+            apply_header_footer(doc, i, &hf, date_given)?;
+        }
+        Ok(json!({"slides": n, "default": true}))
+    })
+}
+
+/// Give slide `i` the date, footer and slide-number placeholders `hf` asks for and take away the
+/// ones it doesn't; `date_given` repoints an existing date placeholder. slide.new and
+/// slide.fromOutline call this too, so the flags are the presentation's default for later slides.
+pub(crate) fn apply_header_footer(doc: &mut Presentation, i: usize, hf: &deckcraft_model::HeaderFooter, date_given: bool) -> Result<()> {
+    let Some(layout) = doc.slides.get(i).map(|x| x.layout) else { return Ok(()) };
+    let lay = doc.layout(layout).map(|(_, l)| l.clone());
+    let is_title = lay.as_ref().is_some_and(|l| l.kind == deckcraft_model::LayoutType::Title);
+    let want = |k: PhType| {
+        !(hf.hide_on_title && is_title)
+            && match k {
+                PhType::Date => hf.date,
+                PhType::SlideNum => hf.slide_number,
+                PhType::Footer => hf.footer,
+                _ => false,
             }
-            let Some(sl) = doc.slides.get_mut(i) else { continue };
-            let sl = Arc::make_mut(sl);
-            for (n, k) in [PhType::Date, PhType::Footer, PhType::SlideNum].into_iter().enumerate() {
-                let has = sl.shapes.iter().position(|x| x.ph_type() == Some(k));
-                match (has, want(k)) {
-                    (Some(pos), false) => {
-                        sl.shapes.remove(pos);
-                    }
-                    (None, true) => {
-                        let lp = lay.as_ref().and_then(|l| l.shapes.iter().find(|x| x.ph_type() == Some(k)).cloned());
-                        let Some(lp) = lp else { continue };
-                        let body = match k {
-                            PhType::SlideNum => TextBody {
-                                paragraphs: vec![deckcraft_model::Paragraph {
-                                    runs: vec![Run {
-                                        text: "‹#›".into(),
-                                        props: Default::default(),
-                                        kind: RunKind::Field { field: "slidenum".into() },
-                                    }],
-                                    ..Default::default()
-                                }],
-                                ..Default::default()
-                            },
-                            PhType::Date if hf.date_text.is_empty() => TextBody {
-                                paragraphs: vec![deckcraft_model::Paragraph {
-                                    runs: vec![Run { text: today(), props: Default::default(), kind: RunKind::Field { field: "datetime1".into() } }],
-                                    ..Default::default()
-                                }],
-                                ..Default::default()
-                            },
-                            PhType::Date => TextBody::from_text(&hf.date_text),
-                            _ => TextBody::from_text(&hf.footer_text),
-                        };
-                        sl.shapes.push(Shape {
-                            id: new_ids.get(n).copied().unwrap_or_default(),
-                            name: lp.name.clone(),
-                            ph: lp.ph.clone(),
-                            text: Some(body),
+    };
+    let mut new_ids = vec![];
+    for _ in 0..3 {
+        new_ids.push(ShapeId(doc.alloc_id().ok_or_else(|| bad("design.headerFooter", NO_ID_SPACE))?));
+    }
+    let Some(sl) = doc.slides.get_mut(i) else { return Ok(()) };
+    let sl = Arc::make_mut(sl);
+    for (n, k) in [PhType::Date, PhType::Footer, PhType::SlideNum].into_iter().enumerate() {
+        let has = sl.shapes.iter().position(|x| x.ph_type() == Some(k));
+        match (has, want(k)) {
+            (Some(pos), false) => {
+                sl.shapes.remove(pos);
+            }
+            (None, true) => {
+                let lp = lay.as_ref().and_then(|l| l.shapes.iter().find(|x| x.ph_type() == Some(k)).cloned());
+                let Some(lp) = lp else { continue };
+                let body = match k {
+                    PhType::SlideNum => TextBody {
+                        paragraphs: vec![deckcraft_model::Paragraph {
+                            runs: vec![Run { text: "‹#›".into(), props: Default::default(), kind: RunKind::Field { field: "slidenum".into() } }],
                             ..Default::default()
-                        });
-                    }
-                    (Some(pos), true) if k == PhType::Footer => {
-                        if let Some(sh) = sl.shapes.get_mut(pos) {
-                            sh.text = Some(TextBody::from_text(&hf.footer_text));
-                        }
-                    }
-                    (Some(pos), true) if k == PhType::Date && date_given => {
-                        if let Some(sh) = sl.shapes.get_mut(pos) {
-                            set_date(sh, &hf.date_text);
-                        }
-                    }
-                    _ => {}
+                        }],
+                        ..Default::default()
+                    },
+                    PhType::Date if hf.date_text.is_empty() => TextBody {
+                        paragraphs: vec![deckcraft_model::Paragraph {
+                            runs: vec![Run { text: today(), props: Default::default(), kind: RunKind::Field { field: "datetime1".into() } }],
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                    PhType::Date => TextBody::from_text(&hf.date_text),
+                    _ => TextBody::from_text(&hf.footer_text),
+                };
+                sl.shapes.push(Shape {
+                    id: new_ids.get(n).copied().unwrap_or_default(),
+                    name: lp.name.clone(),
+                    ph: lp.ph.clone(),
+                    text: Some(body),
+                    ..Default::default()
+                });
+            }
+            (Some(pos), true) if k == PhType::Footer => {
+                if let Some(sh) = sl.shapes.get_mut(pos) {
+                    sh.text = Some(TextBody::from_text(&hf.footer_text));
                 }
             }
+            (Some(pos), true) if k == PhType::Date && date_given => {
+                if let Some(sh) = sl.shapes.get_mut(pos) {
+                    set_date(sh, &hf.date_text);
+                }
+            }
+            _ => {}
         }
-        Ok(())
-    })?;
-    ok()
+    }
+    Ok(())
 }
 
 /// Point a slide's date placeholder at a fixed date (its own plain text) or, for an empty

@@ -11,10 +11,26 @@ use crate::{Result, Session, Target, UiRequest};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!("comment.add", "New Comment", ["Review", "Comments"], Some("Cmd+Alt+M"), "{text, x?, y?, id?: shape}", has_slide, add),
-        cmd!("comment.reply", "Reply", ["Comments"], None, "{index, text}", has_slide, reply),
+        cmd!("comment.reply", "Reply", ["Comments"], None, "{index, text} → {index, slide, resolved, replies: n}", has_slide, reply),
         cmd!("comment.delete", "Delete Comment", ["Review", "Comments"], None, "{index? | all?: bool}", has_slide, delete),
-        cmd!("comment.resolve", "Resolve Thread", ["Comments"], None, "{index, resolved?: bool}", has_slide, resolve),
-        cmd!(query "comment.list", "Comments", [], None, "{slide?} → comments", has_slide, list),
+        cmd!(
+            "comment.resolve",
+            "Resolve Thread",
+            ["Comments"],
+            None,
+            "{index, resolved?: bool} → {index, slide, resolved, replies: n}",
+            has_slide,
+            resolve
+        ),
+        cmd!(
+            query "comment.list",
+            "Comments",
+            [],
+            None,
+            "{slide? (else the current slide only), all?: bool (every slide's comments, each with its slide and index)} → comments",
+            has_slide,
+            list
+        ),
         cmd!(
             noundo "comment.next",
             "Next Comment",
@@ -130,9 +146,13 @@ fn reply(s: &mut Session, p: &Value) -> Result<Value> {
         let sl = Arc::make_mut(doc.slides.get_mut(sel.slide).ok_or_else(|| bad("comment.reply", "no slide"))?);
         let c = sl.comments.get_mut(i).ok_or_else(|| bad("comment.reply", "no such comment"))?;
         c.replies.push(Comment { author, text, date: now(), ..Default::default() });
-        Ok(())
-    })?;
-    ok()
+        Ok(thread_state(i, sel.slide, c))
+    })
+}
+
+/// A thread's state after reply or resolve: `{index, slide, resolved, replies}`.
+fn thread_state(index: usize, slide: usize, c: &Comment) -> Value {
+    json!({"index": index, "slide": slide, "resolved": c.resolved, "replies": c.replies.len()})
 }
 
 fn delete(s: &mut Session, p: &Value) -> Result<Value> {
@@ -163,14 +183,29 @@ fn resolve(s: &mut Session, p: &Value) -> Result<Value> {
     let v = bool_or(p, "resolved", true);
     s.edit(|doc, sel| {
         let sl = Arc::make_mut(doc.slides.get_mut(sel.slide).ok_or_else(|| bad("comment.resolve", "no slide"))?);
-        sl.comments.get_mut(i).ok_or_else(|| bad("comment.resolve", "no such comment"))?.resolved = v;
-        Ok(())
-    })?;
-    ok()
+        let c = sl.comments.get_mut(i).ok_or_else(|| bad("comment.resolve", "no such comment"))?;
+        c.resolved = v;
+        Ok(thread_state(i, sel.slide, c))
+    })
 }
 
 fn list(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.doc()?;
+    if bool_or(p, "all", false) {
+        // Every slide's comments, each saying which slide and index it is.
+        let mut out = vec![];
+        for (slide, sl) in st.doc.slides.iter().enumerate() {
+            for (index, c) in sl.comments.iter().enumerate() {
+                let mut v = serde_json::to_value(c).unwrap_or_default();
+                if let Some(o) = v.as_object_mut() {
+                    o.insert("slide".into(), json!(slide));
+                    o.insert("index".into(), json!(index));
+                }
+                out.push(v);
+            }
+        }
+        return Ok(Value::Array(out));
+    }
     let i = usize_param(p, "slide").unwrap_or(st.selection.slide);
     Ok(serde_json::to_value(st.doc.slides.get(i).map(|x| x.comments.clone()).unwrap_or_default()).unwrap_or_default())
 }

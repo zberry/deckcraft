@@ -20,9 +20,17 @@ pub fn specs() -> Vec<CommandSpec> {
             has_doc,
             new
         ),
-        cmd!("slide.duplicate", "Duplicate Slide", ["Insert"], None, "{index?}", has_slide, duplicate),
+        cmd!(
+            "slide.duplicate",
+            "Duplicate Slide",
+            ["Insert"],
+            None,
+            "{index?} → {ids, index, indices, placeholders: {title, body, …: id}, shapes: [id]} (the first copy's shapes; the copies follow the source)",
+            has_slide,
+            duplicate
+        ),
         cmd!("slide.delete", "Delete Slide", ["Edit"], None, "{index?, ids?: [slide id]}", has_slide, delete),
-        cmd!("slide.move", "Move Slide", [], None, "{from?: index, to: index}", has_slide, move_slide),
+        cmd!("slide.move", "Move Slide", [], None, "{from?: index, to: index} → {index, id}", has_slide, move_slide),
         cmd!(noundo "slide.go", "Go to Slide", [], None, "{index} | {id}", has_slide, go),
         cmd!(noundo "slide.next", "Next Slide", [], Some("PageDown"), "{}", has_slide, next),
         cmd!(noundo "slide.previous", "Previous Slide", [], Some("PageUp"), "{}", has_slide, prev),
@@ -42,7 +50,15 @@ pub fn specs() -> Vec<CommandSpec> {
             notes
         ),
         cmd!("slide.rename", "Rename Slide", [], None, "{name, index?}", has_slide, rename),
-        cmd!("section.add", "Add Section", ["Home", "Slides", "Section"], None, "{name?, at?: slide index}", has_slide, section_add),
+        cmd!(
+            "section.add",
+            "Add Section",
+            ["Home", "Slides", "Section"],
+            None,
+            "{name?, at?: slide index (the section starts there; past the end is refused)} → {sections: [{name, start, slides}], count, index, name}",
+            has_slide,
+            section_add
+        ),
         cmd!("section.rename", "Rename Section", ["Home", "Slides", "Section"], None, "{index, name}", has_slide, section_rename),
         cmd!(
             "section.remove",
@@ -60,7 +76,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Slides from Outline…",
             ["Insert", "Slides From"],
             None,
-            "{text, markdown?: bool (headings are slides, list items bullets)}",
+            "{text, markdown?: bool (headings are slides, list items bullets)} → {slides: n, indices, ids} (the new slides follow the current slide; the last one becomes current)",
             has_doc,
             from_outline
         ),
@@ -133,28 +149,13 @@ fn new(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let at = usize_param(p, "at").unwrap_or(if doc.slides.is_empty() { 0 } else { sel.slide + 1 }).min(doc.slides.len());
         let id = slide.id;
-        // The placeholders by role, so the title or body can be addressed without an inspect.
-        let mut placeholders = serde_json::Map::new();
-        for sh in &slide.shapes {
-            if let Some(ph) = &sh.ph {
-                let role = match ph.kind {
-                    k if k.is_title() => "title",
-                    deckcraft_model::PhType::SubTitle => "subtitle",
-                    deckcraft_model::PhType::Body | deckcraft_model::PhType::Obj => "body",
-                    k => k.xml(),
-                };
-                placeholders.entry(role.to_string()).or_insert(json!(sh.id));
-            }
-        }
-        if let Some(t) = slide.shapes.iter().find(|sh| sh.ph_type().is_some_and(|k| k.is_title())) {
-            placeholders.insert("title".into(), json!(t.id));
-        }
-        if let Some(b) = body_placeholder(&mut slide.shapes) {
-            placeholders.insert("body".into(), json!(b.id));
-        }
+        let placeholders = placeholders_json(&mut slide.shapes);
         // Inherit the section of the slide before.
         let section = at.checked_sub(1).and_then(|i| doc.slides.get(i)).and_then(|prev| doc.section_of(prev.id));
         doc.slides.insert(at, Arc::new(slide));
+        // The presentation's footer, date and slide number, as design.headerFooter set them.
+        let hf = doc.header_footer.clone();
+        super::design::apply_header_footer(doc, at, &hf, false)?;
         if let Some(si) = section
             && let Some(sec) = doc.sections.get_mut(si)
         {
@@ -175,6 +176,30 @@ fn new(s: &mut Session, p: &Value) -> Result<Value> {
         sel.target = Target::Slides;
         Ok(json!({"index": at, "id": id, "placeholders": placeholders}))
     })
+}
+
+/// The placeholders by role (`title`, `subtitle`, `body`, else the placeholder kind's XML name),
+/// so the title or body can be addressed without an inspect.
+fn placeholders_json(shapes: &mut [deckcraft_model::Shape]) -> serde_json::Map<String, Value> {
+    let mut placeholders = serde_json::Map::new();
+    for sh in shapes.iter() {
+        if let Some(ph) = &sh.ph {
+            let role = match ph.kind {
+                k if k.is_title() => "title",
+                deckcraft_model::PhType::SubTitle => "subtitle",
+                deckcraft_model::PhType::Body | deckcraft_model::PhType::Obj => "body",
+                k => k.xml(),
+            };
+            placeholders.entry(role.to_string()).or_insert(json!(sh.id));
+        }
+    }
+    if let Some(t) = shapes.iter().find(|sh| sh.ph_type().is_some_and(|k| k.is_title())) {
+        placeholders.insert("title".into(), json!(t.id));
+    }
+    if let Some(b) = body_placeholder(shapes) {
+        placeholders.insert("body".into(), json!(b.id));
+    }
+    placeholders
 }
 
 /// The placeholder a new slide's `body` goes into: the layout's main content placeholder.
@@ -246,7 +271,17 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
         sel.slides = new_ids.clone();
         sel.shapes.clear();
         sel.text = None;
-        Ok(json!({"ids": new_ids}))
+        // The first copy's place and shapes, so it can be edited without an inspect.
+        let indices: Vec<usize> = new_ids.iter().filter_map(|id| doc.slide_index(*id)).collect();
+        let first = new_ids.first().and_then(|id| doc.slide_index(*id)).and_then(|i| doc.slides.get_mut(i));
+        let (placeholders, shapes) = match first {
+            Some(sl) => {
+                let sl = Arc::make_mut(sl);
+                (placeholders_json(&mut sl.shapes), sl.shapes.iter().map(|x| x.id).collect::<Vec<_>>())
+            }
+            None => (serde_json::Map::new(), vec![]),
+        };
+        Ok(json!({"ids": new_ids, "index": indices.first(), "indices": indices, "placeholders": placeholders, "shapes": shapes}))
     })
 }
 
@@ -310,7 +345,7 @@ fn move_slide(s: &mut Session, p: &Value) -> Result<Value> {
         }
         sel.slide = to;
         sel.slides = vec![id];
-        Ok(json!({"index": to}))
+        Ok(json!({"index": to, "id": id}))
     })
 }
 
@@ -551,10 +586,13 @@ fn rename(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn section_add(s: &mut Session, p: &Value) -> Result<Value> {
     let at = usize_param(p, "at").unwrap_or(s.doc()?.selection.slide);
+    let n = s.doc()?.doc.slides.len();
+    if at >= n {
+        return Err(no_slide("section.add", at, n));
+    }
     let name = str_param(p, "name").unwrap_or("Untitled Section").to_string();
     let wanted = name.clone();
     s.edit(|doc, _| {
-        let at = at.min(doc.slides.len().saturating_sub(1));
         let ids: Vec<SlideId> = doc.slides.iter().map(|x| x.id).collect();
         if doc.sections.is_empty() {
             // The slides before `at` go into a "Default Section".
@@ -572,8 +610,25 @@ fn section_add(s: &mut Session, p: &Value) -> Result<Value> {
             doc.sections.retain(|x| !x.slides.is_empty() || x.name != "Default Section");
         }
         let index = doc.sections.iter().rposition(|x| x.name == wanted).unwrap_or(0);
-        Ok(json!({"sections": doc.sections.len(), "index": index, "name": wanted}))
+        Ok(json!({"sections": sections_json(doc), "count": doc.sections.len(), "index": index, "name": wanted}))
     })
+}
+
+/// The sections as `[{name, start: first slide's index, slides: count}]`; `start` is left out of a
+/// section that has no slides.
+pub(crate) fn sections_json(doc: &Presentation) -> Vec<Value> {
+    doc.sections
+        .iter()
+        .map(|sec| {
+            let mut v = serde_json::Map::new();
+            v.insert("name".into(), json!(sec.name));
+            if let Some(start) = sec.slides.first().and_then(|id| doc.slide_index(*id)) {
+                v.insert("start".into(), json!(start));
+            }
+            v.insert("slides".into(), json!(sec.slides.len()));
+            Value::Object(v)
+        })
+        .collect()
 }
 
 fn section_rename(s: &mut Session, p: &Value) -> Result<Value> {
@@ -645,10 +700,24 @@ fn from_outline(s: &mut Session, p: &Value) -> Result<Value> {
         // both append; move them after the current slide.
         let at = (sel.slide + 1).min(before);
         let new: Vec<_> = doc.slides.drain(before..).collect();
+        let ids: Vec<SlideId> = new.iter().map(|x| x.id).collect();
         for (k, sl) in new.into_iter().enumerate() {
             doc.slides.insert(at + k, sl);
         }
-        Ok(json!({"slides": n}))
+        let indices: Vec<usize> = (0..ids.len()).map(|k| at + k).collect();
+        let hf = doc.header_footer.clone();
+        for i in &indices {
+            super::design::apply_header_footer(doc, *i, &hf, false)?;
+        }
+        // The last new slide becomes current, as after slide.new, so the next slide.new follows it.
+        if let (Some(last), Some(id)) = (indices.last(), ids.last()) {
+            sel.slide = *last;
+            sel.slides = vec![*id];
+            sel.shapes.clear();
+            sel.text = None;
+            sel.target = Target::Slides;
+        }
+        Ok(json!({"slides": n, "indices": indices, "ids": ids}))
     })
 }
 
