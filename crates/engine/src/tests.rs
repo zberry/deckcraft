@@ -3213,21 +3213,21 @@ fn spelling_uses_a_dictionary_suggests_and_changes() {
     let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 300, 100], "text": "Making sldie photos, sldie"})).unwrap();
     let id = r["id"].as_u64().unwrap();
     let v = s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap();
-    let list = v.as_array().unwrap();
+    let list = v["issues"].as_array().unwrap();
     assert_eq!(list.len(), 2, "{v}");
     assert_eq!(list[0]["word"], "sldie");
     assert_eq!(list[0]["suggestions"][0], "slide");
-    assert!(s.execute("review.spelling", &json!({"lang": "xx-TEST", "ignore": ["SLDIE"]})).unwrap().as_array().unwrap().is_empty());
+    assert!(s.execute("review.spelling", &json!({"lang": "xx-TEST", "ignore": ["SLDIE"]})).unwrap()["issues"].as_array().unwrap().is_empty());
     let c = s.execute("review.spellingChange", &json!({"shape": id, "word": "sldie", "to": "slide"})).unwrap();
     assert_eq!(c["changed"], 1);
-    assert_eq!(s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap()["issues"].as_array().unwrap().len(), 1);
     let c = s.execute("review.spellingChange", &json!({"word": "sldie", "to": "slide", "all": true})).unwrap();
     assert_eq!(c["changed"], 1);
-    assert!(s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap().as_array().unwrap().is_empty());
+    assert!(s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap()["issues"].as_array().unwrap().is_empty());
     // Whole words only, and one undo step per change.
     assert_eq!(s.execute("review.spellingChange", &json!({"word": "slid", "to": "x", "all": true})).unwrap()["changed"], 0);
     s.execute("edit.undo", &json!({})).unwrap();
-    assert_eq!(s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap().as_array().unwrap().len(), 1);
+    assert_eq!(s.execute("review.spelling", &json!({"lang": "xx-TEST"})).unwrap()["issues"].as_array().unwrap().len(), 1);
 }
 
 #[test]
@@ -3235,8 +3235,9 @@ fn spelling_without_a_dictionary_falls_back_to_common_misspellings() {
     let mut s = session();
     s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 300, 100], "text": "Teh qzxv"})).unwrap();
     let v = s.execute("review.spelling", &json!({"lang": "zz-NONE"})).unwrap();
-    assert_eq!(v.as_array().map(Vec::len), Some(1));
-    assert_eq!(v[0]["word"], "Teh");
+    assert_eq!(v["issues"].as_array().map(Vec::len), Some(1));
+    assert_eq!(v["issues"][0]["word"], "Teh");
+    assert_eq!(v["dictionary"], false, "{v}");
     let d = s.execute("review.dictionary", &json!({"lang": "zz-NONE"})).unwrap();
     assert!(d["found"].is_null());
     assert_eq!(d["available"], false);
@@ -3267,7 +3268,7 @@ fn spelling_checks_each_run_in_its_language_and_learns_words() {
     })
     .unwrap();
     let v = s.execute("review.spelling", &json!({})).unwrap();
-    let words: Vec<_> = v
+    let words: Vec<_> = v["issues"]
         .as_array()
         .unwrap()
         .iter()
@@ -3275,7 +3276,7 @@ fn spelling_checks_each_run_in_its_language_and_learns_words() {
         .collect();
     assert_eq!(words, vec![("deckcraft".to_string(), "xx-ONE".to_string(), 12)]);
     s.execute("review.addToDictionary", &json!({"word": "deckcraft"})).unwrap();
-    assert!(s.execute("review.spelling", &json!({})).unwrap().as_array().unwrap().is_empty());
+    assert!(s.execute("review.spelling", &json!({})).unwrap()["issues"].as_array().unwrap().is_empty());
     assert_eq!(std::fs::read_to_string(dir.join("user.dic")).unwrap(), "deckcraft\n");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -3289,15 +3290,16 @@ fn language_marks_text_and_no_proof_and_repeats_are_reported() {
     s.execute("edit.select", &json!({"ids": [id]})).unwrap();
     s.execute("format.language", &json!({"lang": "xx-LN"})).unwrap();
     let v = s.execute("review.spelling", &json!({})).unwrap();
-    let got: Vec<(String, bool)> = v.as_array().unwrap().iter().map(|w| (w["word"].as_str().unwrap().to_string(), w["repeated"] == true)).collect();
+    let got: Vec<(String, bool)> =
+        v["issues"].as_array().unwrap().iter().map(|w| (w["word"].as_str().unwrap().to_string(), w["repeated"] == true)).collect();
     assert_eq!(got, vec![("the".to_string(), true), ("nigh".to_string(), false)]);
-    assert_eq!(v[0]["deleteFrom"], 3);
+    assert_eq!(v["issues"][0]["deleteFrom"], 3);
     // Deleting the repeat through the exact-occurrence change.
     s.execute("review.spellingChange", &json!({"shape": id, "para": 0, "start": 3, "word": " the", "to": ""})).unwrap();
     let v = s.execute("shape.inspect", &json!({"id": id})).unwrap();
     assert_eq!(v["shape"]["text"]["paragraphs"][0]["runs"][0]["text"], "the end is nigh");
     s.execute("format.language", &json!({"noProof": true})).unwrap();
-    assert!(s.execute("review.spelling", &json!({})).unwrap().as_array().unwrap().is_empty());
+    assert!(s.execute("review.spelling", &json!({})).unwrap()["issues"].as_array().unwrap().is_empty());
     assert!(s.execute("format.language", &json!({"lang": "en US!"})).is_err());
 }
 
@@ -3835,9 +3837,9 @@ fn animation_add_and_section_add_answer_what_they_made() {
     let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
     let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [200, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
     let r = s.execute("animation.add", &json!({"ids": [a, b], "effect": "fade"})).unwrap();
-    assert_eq!(r, json!({"count": 2, "indices": [0, 1]}), "{r}");
+    assert_eq!(r, json!({"count": 2, "indices": [0, 1], "steps": [1, 1]}), "{r}");
     let r = s.execute("animation.add", &json!({"ids": [a], "effect": "zoom", "class": "exit"})).unwrap();
-    assert_eq!(r, json!({"count": 3, "indices": [2]}), "{r}");
+    assert_eq!(r, json!({"count": 3, "indices": [2], "steps": [2]}), "{r}");
     s.execute("slide.new", &json!({})).unwrap();
     let r = s.execute("section.add", &json!({"name": "Part B", "at": 1})).unwrap();
     assert_eq!(r["sections"], json!([{"name": "Default Section", "start": 0, "slides": 1}, {"name": "Part B", "start": 1, "slides": 1}]), "{r}");
@@ -4311,7 +4313,7 @@ fn transition_apply_all_copies_everything_and_answers_the_slide_count() {
     s.execute("slide.new", &json!({})).unwrap();
     s.execute("transition.set", &json!({"kind": "push", "option": "l", "duration": 1250})).unwrap();
     let r = s.execute("transition.applyAll", &json!({})).unwrap();
-    assert_eq!(r, json!({"slides": 3}), "{r}");
+    assert_eq!(r, json!({"slides": 3, "source": 2, "kind": "push"}), "{r}");
     let st = s.doc().unwrap();
     let want = st.doc.slides[2].transition.clone().expect("set");
     assert_eq!((want.kind.as_str(), want.option.as_str(), want.duration_ms), ("push", "l", 1250));
@@ -4322,4 +4324,140 @@ fn transition_apply_all_copies_everything_and_answers_the_slide_count() {
     assert!(doc.contains("duration") && doc.contains("option"), "{doc}");
     let doc = command_specs().iter().find(|c| c.id == "animation.move").unwrap().params;
     assert!(doc.contains("renumber") && doc.contains("step"), "{doc}");
+}
+
+/// X2: `transition.applyAll` refuses when the current slide has no transition (it used to clear
+/// every slide silently), unless `clear: true`; the answer names the source slide and kind.
+#[test]
+fn transition_apply_all_refuses_an_empty_source_unless_clearing() {
+    let mut s = session();
+    s.execute("transition.set", &json!({"kind": "fade", "duration": 700})).unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    assert_eq!(s.doc().unwrap().selection.slide, 2);
+    let e = s.execute("transition.applyAll", &json!({})).unwrap_err().to_string();
+    assert!(e.contains("slide index 2 has no transition to copy") && e.contains("clear: true"), "{e}");
+    assert!(s.doc().unwrap().doc.slides[0].transition.is_some(), "refusing changed nothing");
+    s.execute("slide.go", &json!({"index": 0})).unwrap();
+    let r = s.execute("transition.applyAll", &json!({})).unwrap();
+    assert_eq!(r, json!({"slides": 3, "source": 0, "kind": "fade"}), "{r}");
+    assert!(s.doc().unwrap().doc.slides.iter().all(|sl| sl.transition.as_ref().is_some_and(|t| t.kind == "fade")));
+    s.execute("transition.set", &json!({"kind": "none"})).unwrap();
+    let r = s.execute("transition.applyAll", &json!({"clear": true})).unwrap();
+    assert_eq!(r, json!({"slides": 3, "source": 0, "kind": "none"}), "{r}");
+    assert!(s.doc().unwrap().doc.slides.iter().all(|sl| sl.transition.is_none()), "clear: true clears every slide");
+    let doc = command_specs().iter().find(|c| c.id == "transition.applyAll").unwrap().params;
+    assert!(doc.contains("clear?") && doc.contains("source"), "{doc}");
+}
+
+/// X3: a `smartArt.*` command given an id that is not a SmartArt graphic says what the id is and,
+/// when the slide has exactly one SmartArt graphic, which id that is.
+#[test]
+fn smartart_commands_say_what_a_wrong_id_is_and_name_the_graphic() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "title"})).unwrap();
+    let ph = s.doc().unwrap().doc.slides[1].shapes.iter().find(|sh| sh.ph.is_some()).map(|sh| sh.id.0).expect("a placeholder");
+    let g = s.execute("insert.smartArt", &json!({"kind": "list", "items": ["A", "B"]})).unwrap()["id"].as_u64().unwrap();
+    let e = s.execute("smartArt.colors", &json!({"id": ph, "colors": "accent3"})).unwrap_err().to_string();
+    assert!(e.ends_with(&format!("id {ph} is a placeholder, not a SmartArt graphic (the SmartArt on this slide is {g})")), "{e}");
+    let pic = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10.0, 10.0, 50.0, 50.0]})).unwrap()["id"].as_u64().unwrap();
+    let e = s.execute("smartArt.style", &json!({"id": pic, "style": "intense"})).unwrap_err().to_string();
+    assert!(e.contains(&format!("id {pic} is a shape, not a SmartArt graphic (the SmartArt on this slide is {g})")), "{e}");
+    let e = s.execute("smartArt.colors", &json!({"id": 999_999, "colors": "accent3"})).unwrap_err().to_string();
+    assert!(e.contains("id 999999 is not on this slide") && e.contains(&format!("is {g})")), "{e}");
+    // A second graphic: no single one to name.
+    s.execute("insert.smartArt", &json!({"kind": "list", "items": ["C"]})).unwrap();
+    let e = s.execute("smartArt.colors", &json!({"id": ph, "colors": "accent3"})).unwrap_err().to_string();
+    assert!(e.contains(&format!("id {ph} is a placeholder, not a SmartArt graphic")) && !e.contains("on this slide is"), "{e}");
+}
+
+/// X4: `perPage` belongs to the handouts layout; with notes (one slide per page) or slides it
+/// was silently ignored, now it is refused, and the doc says the layouts are separate.
+#[test]
+fn export_refuses_per_page_outside_the_handouts_layout() {
+    let mut s = session();
+    let dir = std::env::temp_dir().join(format!("deckcraft-x4-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("notes.pdf").to_string_lossy().to_string();
+    let e = s.execute("file.export", &json!({"path": path, "format": "pdf", "layout": "notes", "perPage": 3})).unwrap_err().to_string();
+    assert!(e.contains("`perPage` applies to the handouts layout; notes pages are one slide per page"), "{e}");
+    assert!(!std::path::Path::new(&path).exists(), "nothing written");
+    let e = s.execute("file.export", &json!({"path": path, "format": "pdf", "perPage": 3})).unwrap_err().to_string();
+    assert!(e.contains("`perPage` applies to the handouts layout"), "{e}");
+    let o = cmd::file::pdf_options(&json!({"layout": "handouts", "perPage": 3}), 1).unwrap();
+    assert_eq!(o.layout, deckcraft_pdf::PageLayout::Handouts { per_page: 3 });
+    let o = cmd::file::pdf_options(&json!({"layout": "notes"}), 1).unwrap();
+    assert_eq!(o.layout, deckcraft_pdf::PageLayout::Notes);
+    let r = s.execute("file.export", &json!({"path": path, "format": "pdf", "layout": "notes"})).unwrap();
+    assert_eq!(r["path"], path, "{r}");
+    let doc = command_specs().iter().find(|c| c.id == "file.export").unwrap().params;
+    assert!(doc.contains("handouts only") && doc.contains("separate"), "{doc}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// X5: `review.spelling` answers `{dictionary, lang, issues}`, so "no mistakes" and "no dictionary,
+/// only the common-misspellings list ran" are no longer the same empty list.
+#[test]
+fn spelling_answer_says_whether_a_dictionary_was_used() {
+    crate::spell::install("xx-DICT", crate::spell::Dictionary::parse(b"", b"2\nclean\ndeck\n"));
+    let mut s = session();
+    s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 300, 100], "text": "clean deck"})).unwrap();
+    let v = s.execute("review.spelling", &json!({"lang": "xx-DICT"})).unwrap();
+    assert_eq!(v, json!({"dictionary": true, "lang": "xx-DICT", "issues": []}), "{v}");
+    let v = s.execute("review.spelling", &json!({"lang": "zz-NONE"})).unwrap();
+    assert_eq!((v["dictionary"].as_bool(), v["lang"].as_str()), (Some(false), Some("zz-NONE")), "{v}");
+    assert_eq!(v["issues"].as_array().map(Vec::len), Some(0), "{v}");
+    s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 300, 300, 100], "text": "Teh"})).unwrap();
+    let v = s.execute("review.spelling", &json!({"lang": "zz-NONE"})).unwrap();
+    assert_eq!(v["issues"][0]["word"], "Teh", "the common list still runs without a dictionary: {v}");
+    let doc = command_specs().iter().find(|c| c.id == "review.spelling").unwrap().params;
+    assert!(doc.contains("dictionary: bool") && doc.contains("issues") && doc.contains("common"), "{doc}");
+}
+
+/// X6: `file.export` and `file.save` to a folder that does not exist yet create it (the shared
+/// writer does), instead of failing with the raw OS error; the export doc says `slide` is 0-based.
+#[test]
+fn export_and_save_create_a_missing_folder() {
+    let mut s = session();
+    let dir = std::env::temp_dir().join(format!("deckcraft-x6-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let png = dir.join("new").join("deeper").join("slide.png");
+    let r = s.execute("file.export", &json!({"path": png.to_string_lossy(), "slide": 0})).unwrap();
+    assert!(png.is_file(), "{r}");
+    let deck = dir.join("saved").join("deck.deckcraft");
+    let r = s.execute("file.save", &json!({"path": deck.to_string_lossy()})).unwrap();
+    assert!(deck.is_file(), "{r}");
+    let pdf = dir.join("pdf").join("deck.pdf");
+    s.execute("file.export", &json!({"path": pdf.to_string_lossy(), "format": "pdf"})).unwrap();
+    assert!(pdf.is_file());
+    let doc = command_specs().iter().find(|c| c.id == "file.export").unwrap().params;
+    assert!(doc.contains("slide?: 0-based index"), "{doc}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// X7: `comment.add` answers the slide it landed on beside `index`; `animation.add` answers the
+/// click step of each added animation (`steps`), as `animation.get` reports `step`.
+#[test]
+fn comment_add_answers_its_slide_and_animation_add_its_steps() {
+    let mut s = session();
+    s.execute("slide.new", &json!({})).unwrap();
+    let r = s.execute("comment.add", &json!({"text": "here"})).unwrap();
+    assert_eq!(r, json!({"index": 0, "slide": 1}), "{r}");
+    let r = s.execute("comment.add", &json!({"text": "again"})).unwrap();
+    assert_eq!(r, json!({"index": 1, "slide": 1}), "{r}");
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [200, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let r = s.execute("animation.add", &json!({"ids": [a, b], "effect": "fade"})).unwrap();
+    assert_eq!(r, json!({"count": 2, "indices": [0, 1], "steps": [1, 1]}), "one call, one click step: {r}");
+    let r = s.execute("animation.add", &json!({"ids": [a], "effect": "zoom", "class": "exit"})).unwrap();
+    assert_eq!(r, json!({"count": 3, "indices": [2], "steps": [2]}), "{r}");
+    let r = s.execute("animation.add", &json!({"ids": [b], "effect": "zoom", "class": "exit", "start": "afterPrevious"})).unwrap();
+    assert_eq!(r["steps"], json!([2]), "joins the step before it: {r}");
+    let got = s.execute("animation.get", &json!({})).unwrap();
+    let steps: Vec<u64> = got.as_array().unwrap().iter().map(|x| x["step"].as_u64().unwrap()).collect();
+    assert_eq!(steps, vec![1, 1, 2, 2], "{got}");
+    for id in ["comment.add", "animation.add"] {
+        let doc = command_specs().iter().find(|c| c.id == id).unwrap().params;
+        assert!(doc.contains(if id == "comment.add" { "slide" } else { "steps" }), "{id}: {doc}");
+    }
 }
