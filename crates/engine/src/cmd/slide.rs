@@ -68,7 +68,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Slides from Outline…",
             ["Insert", "Slides From"],
             None,
-            "{text, markdown?: bool (headings are slides, list items bullets)}",
+            "{text, markdown?: bool (headings are slides, list items bullets)} → {slides: n, indices, ids} (the new slides follow the current slide; the last one becomes current)",
             has_doc,
             from_outline
         ),
@@ -673,10 +673,20 @@ fn from_outline(s: &mut Session, p: &Value) -> Result<Value> {
         // both append; move them after the current slide.
         let at = (sel.slide + 1).min(before);
         let new: Vec<_> = doc.slides.drain(before..).collect();
+        let ids: Vec<SlideId> = new.iter().map(|x| x.id).collect();
         for (k, sl) in new.into_iter().enumerate() {
             doc.slides.insert(at + k, sl);
         }
-        Ok(json!({"slides": n}))
+        let indices: Vec<usize> = (0..ids.len()).map(|k| at + k).collect();
+        // The last new slide becomes current, as after slide.new, so the next slide.new follows it.
+        if let (Some(last), Some(id)) = (indices.last(), ids.last()) {
+            sel.slide = *last;
+            sel.slides = vec![*id];
+            sel.shapes.clear();
+            sel.text = None;
+            sel.target = Target::Slides;
+        }
+        Ok(json!({"slides": n, "indices": indices, "ids": ids}))
     })
 }
 
