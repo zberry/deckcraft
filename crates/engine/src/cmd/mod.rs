@@ -491,11 +491,19 @@ pub(crate) fn with_param(p: &Value, key: &str, v: Value) -> Value {
 
 /// Targets: `ids` / `id` params, else the selection.
 pub(crate) fn targets(s: &Session, p: &Value) -> Result<Vec<ShapeId>> {
-    if let Some(ids) = ids_param(p, "ids") {
+    if let Some(raw) = p.get("ids").and_then(Value::as_array) {
         // An explicit empty list is a caller's mistake, not "the selection": acting on the
         // selection instead was a trap an agent fell into (#298).
-        if ids.is_empty() {
+        if raw.is_empty() {
             return Err(EngineError::Other("`ids` is empty: pass the shape ids, or leave `ids` out to act on the selected shapes".into()));
+        }
+        // ids_param drops entries that are no shape id; a list left with none is told what it held.
+        let ids = ids_param(p, "ids").unwrap_or_default();
+        if ids.is_empty() {
+            return Err(EngineError::Other(format!(
+                "`ids` has no valid shape id: {}: shape ids are whole numbers from 0 up, as shape.insert and slide.inspect answer them",
+                Value::Array(raw.clone())
+            )));
         }
         return Ok(ids);
     }
