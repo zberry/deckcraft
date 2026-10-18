@@ -364,6 +364,7 @@ fn discovery_costs_fewer_calls() {
         "insert.table",
         "design.palette",
         "placeholders",
+        "cannot read images",
     ] {
         assert!(instr.contains(needle), "instructions should mention {needle}");
     }
