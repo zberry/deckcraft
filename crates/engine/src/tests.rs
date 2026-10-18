@@ -4461,3 +4461,100 @@ fn comment_add_answers_its_slide_and_animation_add_its_steps() {
         assert!(doc.contains(if id == "comment.add" { "slide" } else { "steps" }), "{id}: {doc}");
     }
 }
+
+/// Y1: `slide.duplicate` names the copy's `placeholders` by each placeholder's own kind, as
+/// `slide.new` does: a Title Only copy has `title` and its footer and slide number as `ftr` and
+/// `sldNum`, no `body` (it once answered `body` and `ftr` with one id, the footer's); a Title and
+/// Content copy has `title` and `body`.
+#[test]
+fn slide_duplicate_names_placeholders_by_their_kind() {
+    let mut s = session();
+    s.execute("design.headerFooter", &json!({"slideNumber": true, "footer": true, "footerText": "Q3"})).unwrap();
+    s.execute("slide.new", &json!({"layout": "titleOnly", "title": "Only"})).unwrap();
+    let d = s.execute("slide.duplicate", &json!({})).unwrap();
+    let ph = d["placeholders"].as_object().unwrap();
+    assert!(ph.get("body").is_none(), "a Title Only slide has no body placeholder: {d}");
+    for k in ["title", "ftr", "sldNum"] {
+        assert!(ph.get(k).is_some_and(Value::is_u64), "{k}: {d}");
+    }
+    let mut ids: Vec<u64> = ph.values().filter_map(Value::as_u64).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), ph.len(), "one id per placeholder: {d}");
+    let shapes = d["shapes"].as_array().unwrap();
+    assert!(ids.iter().all(|id| shapes.contains(&json!(id))), "every id is on the copy: {d}");
+    let sl = s.execute("slide.inspect", &json!({})).unwrap();
+    let kinds: Vec<(Value, Value)> = sl["shapes"].as_array().unwrap().iter().map(|x| (x["id"].clone(), x["placeholder"].clone())).collect();
+    assert!(kinds.contains(&(ph["title"].clone(), json!("title"))), "{sl}");
+    assert!(kinds.contains(&(ph["ftr"].clone(), json!("ftr"))), "{sl}");
+    assert!(kinds.contains(&(ph["sldNum"].clone(), json!("sldNum"))), "{sl}");
+    s.execute("slide.new", &json!({"layout": "titleAndContent", "title": "T", "body": "b"})).unwrap();
+    let d = s.execute("slide.duplicate", &json!({})).unwrap();
+    let (t, b) = (&d["placeholders"]["title"], &d["placeholders"]["body"]);
+    assert!(t.is_u64() && b.is_u64() && t != b, "title and body: {d}");
+    assert!(d["placeholders"].get("ftr").is_some_and(Value::is_u64), "{d}");
+}
+
+/// Y2: `shape.connect {id, from, to, preset}` re-glues an existing connector *and* applies the
+/// preset; with `id`, `preset` was silently ignored, so a straight connector could never be made
+/// bent (it answered straightConnector1 to a bentConnector3 request).
+#[test]
+fn shape_connect_with_id_applies_the_preset() {
+    use deckcraft_model::{ShapeId, ShapeKind};
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [300, 200, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let c = s.execute("shape.connect", &json!({"from": a, "to": b})).unwrap()["id"].as_u64().unwrap();
+    let state = |s: &Session| {
+        let st = s.doc().unwrap();
+        let sh = st.shape(ShapeId(c as u32)).unwrap();
+        let glued = match sh.kind {
+            ShapeKind::Connector { start: Some((f, _)), end: Some((t, _)) } => f.0 as u64 == a && t.0 as u64 == b,
+            _ => false,
+        };
+        (sh.geom.preset_name().unwrap_or_default().to_string(), glued)
+    };
+    assert_eq!(state(&s), ("straightConnector1".into(), true));
+    let r = s.execute("shape.connect", &json!({"id": c, "from": a, "to": b, "preset": "bentConnector3"})).unwrap();
+    assert_eq!(r["id"], c, "{r}");
+    assert_eq!(state(&s), ("bentConnector3".into(), true), "the preset is applied and the ends stay glued");
+    let r = s.execute("shape.connect", &json!({"id": c, "from": a, "to": b, "preset": "curvedConnector3"})).unwrap();
+    assert_eq!(r["id"], c, "{r}");
+    assert_eq!(state(&s), ("curvedConnector3".into(), true));
+    // Only a connector preset: a box is not a line, so it is refused and the connector is unchanged.
+    let e = s.execute("shape.connect", &json!({"id": c, "from": a, "to": b, "preset": "rect"})).unwrap_err().to_string();
+    assert!(e.contains("not a connector preset"), "{e}");
+    assert_eq!(state(&s), ("curvedConnector3".into(), true));
+    let doc = command_specs().iter().find(|cm| cm.id == "shape.connect").unwrap().params;
+    assert!(doc.contains("with id: changes the connector's kind"), "{doc}");
+}
+
+/// Y4: `file.export {all: true, path: "d.png"}` writes d1.png, d2.png… numbered from 1 (the
+/// displayed slide number) while `slide` is a 0-based index; the doc says so and the answer
+/// carries `indices`, the 0-based slide of each file, beside `files`.
+#[test]
+fn export_all_numbers_files_from_one_and_answers_their_slide_indices() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "titleOnly", "title": "Two"})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let dir = std::env::temp_dir().join(format!("deckcraft-export-all-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let r = s.execute("file.export", &json!({"path": dir.join("d.png").to_string_lossy(), "all": true, "scale": 0.25})).unwrap();
+    let expect: Vec<Value> = (1..=3).map(|n| json!(dir.join(format!("d{n}.png")).to_string_lossy())).collect();
+    assert_eq!(r["files"], json!(expect), "{r}");
+    assert_eq!(r["indices"], json!([0, 1, 2]), "{r}");
+    for f in &expect {
+        assert!(std::path::Path::new(f.as_str().unwrap()).is_file(), "{f}");
+    }
+    let one = dir.join("one.png");
+    let r = s.execute("file.export", &json!({"path": one.to_string_lossy(), "slide": 1, "scale": 0.25})).unwrap();
+    assert_eq!(r, json!({"files": [one.to_string_lossy()], "indices": [1]}), "{r}");
+    let doc = command_specs().iter().find(|c| c.id == "file.export").unwrap().params;
+    assert!(doc.contains("numbered from 1") && doc.contains("indices"), "{doc}");
+    for (id, needle) in [("chart.data", "replaces all the series"), ("animation.timing", "as animation.get numbers them")] {
+        let doc = command_specs().iter().find(|c| c.id == id).unwrap().params;
+        assert!(doc.contains(needle), "{id}: {doc}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
