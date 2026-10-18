@@ -6,7 +6,8 @@ use super::{
 
 /// Apply run formatting to the text selection (or, when not editing, to all text of the
 /// selected shapes). A caret without a range formats the word it's in (PowerPoint behaviour),
-/// or sets the formatting for what is typed next at a word boundary.
+/// or sets the formatting for what is typed next at a word boundary. Formatting shapes answers
+/// as [`edit_shapes`] does (how many changed), so a caller can check a multi-selection took.
 pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sync)) -> Result<Value> {
     let st = s.doc()?;
     if let Some(t) = st.selection.text.clone() {
@@ -31,7 +32,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
         return Err(bad("format", SELECT_TEXT_OR_SHAPE));
     }
     let cells = st.selection.cells;
-    edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
+    let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         let id = sh.id;
         match &mut sh.kind {
             ShapeKind::Table(t) => {
@@ -55,7 +56,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
     for id in ids {
         fit_text_box(s, id)?;
     }
-    ok()
+    Ok(changed)
 }
 
 /// What `format_run` formats while editing: the selection, or for a bare caret the word it's in
@@ -128,7 +129,7 @@ pub(crate) fn format_para(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
         return Err(bad("format", SELECT_TEXT_OR_SHAPE));
     }
     let cells = st.selection.cells;
-    edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
+    let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         let id = sh.id;
         match &mut sh.kind {
             ShapeKind::Table(t) => {
@@ -154,7 +155,7 @@ pub(crate) fn format_para(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
     for id in ids {
         fit_text_box(s, id)?;
     }
-    ok()
+    Ok(changed)
 }
 
 /// Apply body (text box) changes to the edited or selected shapes.
@@ -167,14 +168,14 @@ pub(crate) fn format_body(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
     if ids.is_empty() {
         return Err(bad("format", "select a shape"));
     }
-    edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
+    let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         f(&mut sh.text.get_or_insert_with(TextBody::default).body);
         Ok(())
     })?;
     for id in ids {
         fit_text_box(s, id)?;
     }
-    ok()
+    Ok(changed)
 }
 
 pub(super) fn fonts_used(s: &mut Session, _: &Value) -> Result<Value> {
