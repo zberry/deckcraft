@@ -5007,3 +5007,24 @@ fn a_shape_in_front_of_edited_text_takes_the_click() {
     let st = s.doc().unwrap();
     assert!(st.selection.text.as_ref().is_none_or(|t| t.shape.0 as u64 != tb), "the click on the member in front left the text: {:?}", st.selection);
 }
+
+/// AA1: the read-only shape lookups (shape.inspect, text.get, shape.sites) find an id on any
+/// slide, as the edits do, without making that slide current, and shape.inspect and text.get say
+/// which slide the shape is on.
+#[test]
+fn read_only_shape_lookups_find_an_id_on_any_slide_and_say_where() {
+    let mut s = session();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 20, 100, 50], "text": "far"})).unwrap()["id"].as_u64().unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [30, 40, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    assert_eq!(s.doc().unwrap().selection.slide, 1);
+    let r = s.execute("shape.inspect", &json!({"id": a})).unwrap();
+    assert_eq!((r["slide"].clone(), r["box"]["x"].clone()), (json!(0), json!(10.0)), "{r}");
+    let r = s.execute("text.get", &json!({"id": a})).unwrap();
+    assert_eq!((r["slide"].clone(), r["text"].clone()), (json!(0), json!("far")), "{r}");
+    assert_eq!(s.execute("shape.sites", &json!({"id": a})).unwrap().as_array().map(Vec::len), Some(4));
+    assert_eq!(s.doc().unwrap().selection.slide, 1, "a read-only lookup moves nothing");
+    assert_eq!(s.execute("shape.inspect", &json!({"id": b})).unwrap()["slide"], json!(1));
+    let e = s.execute("shape.inspect", &json!({"id": 999})).unwrap_err().to_string();
+    assert!(e.contains("no shape 999"), "{e}");
+}
