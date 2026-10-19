@@ -165,7 +165,7 @@ pub fn shape_summary(ctx: Option<&Ctx>, sh: &Shape, depth: usize) -> Value {
                 o.insert("chart".into(), json!({"type": c.kind.label(), "title": c.title, "categories": c.categories, "series": c.series.iter().map(|s| json!({"name": s.name, "values": s.values})).collect::<Vec<_>>()}));
             }
             ShapeKind::Group { children, .. } if depth < 8 => {
-                o.insert("children".into(), Value::Array(children.iter().map(|c| shape_summary(None, c, depth + 1)).collect()));
+                o.insert("children".into(), Value::Array(children.iter().map(|c| shape_summary(ctx, c, depth + 1)).collect()));
             }
             ShapeKind::Media(m) => {
                 o.insert("media".into(), json!({"id": m.media, "video": m.video, "autoplay": m.autoplay, "loop": m.loop_play}));

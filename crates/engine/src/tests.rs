@@ -7478,3 +7478,20 @@ fn document_inspect_lists_custom_shows() {
     let r = s.execute("document.inspect", &json!({})).unwrap();
     assert_eq!(r["customShows"], json!([{"name": "Short", "slides": [2, 0]}]), "{r}");
 }
+
+#[test]
+fn slide_inspect_gives_group_children_fill_and_text_colour() {
+    let mut s = session();
+    let a = s
+        .execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50], "fill": "#ff0000", "text": "A", "color": "#00ff00"}))
+        .unwrap()["id"]
+        .clone();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [200, 10, 100, 50], "fill": "#0000ff"})).unwrap()["id"].clone();
+    s.execute("arrange.group", &json!({"ids": [a, b]})).unwrap();
+    let r = s.execute("slide.inspect", &json!({})).unwrap();
+    let g = r["shapes"].as_array().unwrap().iter().find(|x| x["kind"] == "group").unwrap();
+    let kids = g["children"].as_array().unwrap();
+    assert_eq!(kids[0]["fill"], "#FF0000", "{g}");
+    assert_eq!(kids[0]["textColor"], "#00FF00", "{g}");
+    assert_eq!(kids[1]["fill"], "#0000FF", "{g}");
+}
