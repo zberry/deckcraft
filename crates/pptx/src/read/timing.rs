@@ -69,6 +69,13 @@ fn collect<'a>(e: &'a El, trigger: Option<u32>, out: &mut Vec<Found<'a>>, depth:
             && let Some(ctn) = c.child("cTn")
             && ctn.attr("nodeType") == Some("interactiveSeq")
         {
+            // Only a click starts a button sequence we can write back. A media bookmark
+            // (`onMediaBookmark`) or other start has no model: leave its effects out rather
+            // than save them as clicks on the media shape (#362).
+            if ctn.path(&["stCondLst", "cond"]).and_then(|c| c.attr("evt")).is_some_and(|evt| evt != "onClick") {
+                log::warn!("pptx: an animation sequence with a start other than a click was left out");
+                continue;
+            }
             trig = ctn.path(&["stCondLst", "cond", "tgtEl", "spTgt"]).and_then(|s| s.u32("spid"));
         }
         collect(c, trig, out, depth + 1);
