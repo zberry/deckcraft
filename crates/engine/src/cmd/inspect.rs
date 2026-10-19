@@ -9,7 +9,7 @@ use crate::{Result, Session};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; selection; size; theme", has_doc, document),
+        cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; sections; customShows: [{name, slides: 0-based slide indices in show order}]; selection; size; theme", has_doc, document),
         cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
@@ -55,6 +55,7 @@ fn document(s: &mut Session, p: &Value) -> Result<Value> {
         "dirty": st.is_dirty(),
         "slideSize": [d.slide_size.width, d.slide_size.height],
         "slides": slides,
+        "customShows": d.custom_shows.iter().map(|c| json!({"name": c.name, "slides": c.slides.iter().filter_map(|id| d.slides.iter().position(|sl| sl.id == *id)).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         "sections": d.sections.iter().map(|x| json!({"name": x.name, "slides": x.slides.len()})).collect::<Vec<_>>(),
         "theme": m.map(|m| m.theme.name.clone()),
         "fonts": m.map(|m| json!({"major": m.theme.fonts.major.latin, "minor": m.theme.fonts.minor.latin})),

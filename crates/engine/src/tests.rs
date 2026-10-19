@@ -7467,3 +7467,14 @@ fn shape_insert_takes_the_scheme_fill_object_shape_fill_takes() {
     let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50], "fill": "none"})).unwrap();
     assert!(r["id"].is_number());
 }
+
+#[test]
+fn document_inspect_lists_custom_shows() {
+    let mut s = session();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    assert_eq!(s.execute("document.inspect", &json!({})).unwrap()["customShows"], json!([]));
+    s.execute("show.customShow", &json!({"name": "Short", "slides": [2, 0]})).unwrap();
+    let r = s.execute("document.inspect", &json!({})).unwrap();
+    assert_eq!(r["customShows"], json!([{"name": "Short", "slides": [2, 0]}]), "{r}");
+}
