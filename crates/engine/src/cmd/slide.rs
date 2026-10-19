@@ -345,17 +345,32 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
 fn move_slide(s: &mut Session, p: &Value) -> Result<Value> {
     let from = opt_usize_param(p, "from", "slide.move")?.unwrap_or(s.doc()?.selection.slide);
     let to = opt_usize_param(p, "to", "slide.move")?.ok_or_else(|| bad("slide.move", "missing `to`"))?;
+    // A move onto the same index changes nothing, so it records no undo step (selection only).
+    if from == to {
+        let doc = s.doc()?.doc.clone();
+        let n = doc.slides.len();
+        let Some(id) = doc.slides.get(from).map(|x| x.id) else { return Err(super::no_slide("slide.move", from, n)) };
+        s.select(|_, sel| {
+            sel.slide = to;
+            sel.slides = vec![id];
+        })?;
+        let section = doc.section_of(id).and_then(|i| doc.sections.get(i).map(|sec| json!({"index": i, "name": sec.name})));
+        return Ok(json!({"index": to, "id": id, "section": section}));
+    }
     s.edit(|doc, sel| {
         // `to` is the final index, so it has the same range as `from`: refused, never clamped.
         let n = doc.slides.len();
         if let Some(i) = [from, to].into_iter().find(|i| *i >= n) {
             return Err(super::no_slide("slide.move", i, n));
         }
-        let sl = doc.slides.remove(from);
-        let id = sl.id;
-        doc.slides.insert(to, sl);
+        let id = doc.slides[from].id;
+        // A move to the same index changes nothing, the slide's section included.
+        if from != to {
+            let sl = doc.slides.remove(from);
+            doc.slides.insert(to, sl);
+        }
         // Keep sections consistent with order: move the id into the section of its new neighbour.
-        if !doc.sections.is_empty() {
+        if from != to && !doc.sections.is_empty() {
             for sec in &mut doc.sections {
                 sec.slides.retain(|x| *x != id);
             }

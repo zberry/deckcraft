@@ -7271,6 +7271,30 @@ fn slide_move_answers_its_section_and_exports_name_the_hidden_slides_they_skip()
 }
 
 #[test]
+fn slide_move_to_the_same_index_changes_nothing_at_a_section_boundary() {
+    let mut s = session();
+    for _ in 0..3 {
+        s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    }
+    s.execute("section.add", &json!({"name": "Intro", "at": 0})).unwrap();
+    s.execute("section.add", &json!({"name": "Body", "at": 2})).unwrap();
+    let before = s.execute("document.inspect", &json!({})).unwrap();
+    // Index 2 is the first slide of Body; a move onto itself must not pull it into Intro.
+    let undo = s.execute("document.inspect", &json!({})).unwrap()["undo"].clone();
+    let m = s.execute("slide.move", &json!({"from": 2, "to": 2})).unwrap();
+    assert_eq!(s.execute("document.inspect", &json!({})).unwrap()["undo"], undo, "a no-op move records no undo step");
+    assert_ne!(undo, json!("Move Slide"));
+    assert_eq!(m["index"], json!(2));
+    assert_eq!(m["section"]["name"], json!("Body"), "{m}");
+    assert!(m["id"].is_u64(), "{m}");
+    let m = s.execute("slide.move", &json!({"from": 1, "to": 1})).unwrap();
+    assert_eq!(m["section"]["name"], json!("Intro"), "{m}");
+    let after = s.execute("document.inspect", &json!({})).unwrap();
+    assert_eq!(after["sections"], before["sections"]);
+    assert_eq!(after["slides"], before["slides"]);
+}
+
+#[test]
 fn slide_notes_answers_slide_and_chars() {
     let mut s = session();
     let r = s.execute("slide.notes", &json!({"index": 0, "text": "Hello notes"})).unwrap();
