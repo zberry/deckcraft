@@ -162,8 +162,11 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "inspect_document",
             "Inspect presentation",
-            "Slides (index, 0-based; number, as the editor shows it; id, title, layout, shape count, transition, animations, notes), sections, theme, layouts, media and the selection.",
-            obj(json!({}), &[]),
+            "Slides (index, 0-based; number, as the editor shows it; id, title, layout, shape count, transition, animations, notes), sections, theme, layouts, media and the selection. `shapes: \"brief\"` adds shapeList to each slide: its shapes' id, name, kind and first words of text, to find a shape without inspecting every slide.",
+            obj(
+                json!({"shapes": {"type": "string", "enum": ["brief"], "description": "brief: add shapeList (id, name, kind, first words of text) to every slide"}}),
+                &[],
+            ),
             true,
         ),
         tool(
@@ -545,7 +548,11 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
         "open_presentation" => wrap(exec(b, "file.open", a)),
         "save_presentation" => wrap(exec(b, "file.save", a)),
         "export" => wrap(slide_alias(name, &a, "slide").and_then(|p| exec(b, "file.export", p))),
-        "inspect_document" => wrap(b.call("document.inspect", json!({}))),
+        "inspect_document" => match a.get("shapes") {
+            // The brief listing is the command's own parameter, so it goes through the command path.
+            Some(v) if !v.is_null() => wrap(exec(b, "document.inspect", json!({"shapes": v}))),
+            _ => wrap(b.call("document.inspect", json!({}))),
+        },
         "inspect_slide" => wrap(slide_alias(name, &a, "index").and_then(|p| exec(b, "slide.inspect", p))),
         "render_slide" => match slide_alias(name, &a, "slide").and_then(|p| b.call("ui.render", p)) {
             Ok(v) => match v.get("png").and_then(Value::as_str) {

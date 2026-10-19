@@ -7221,3 +7221,22 @@ fn smartart_media_theme_and_replace_answer_facts() {
     assert_eq!(r["replaced"], json!(2));
     assert!(r["shapes"].as_array().is_some_and(|a| a.contains(&json!(t))), "{r}");
 }
+
+#[test]
+fn document_inspect_brief_lists_each_slides_shapes() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let t = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("text.set", &json!({"id": t, "text": "one two three four five six seven eight"})).unwrap();
+    let plain = s.execute("document.inspect", &json!({})).unwrap();
+    assert!(plain["slides"][1].get("shapeList").is_none(), "the default is unchanged");
+    let r = s.execute("document.inspect", &json!({"shapes": "brief"})).unwrap();
+    let list = r["slides"][1]["shapeList"].as_array().expect("shapeList");
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["id"], json!(t));
+    assert_eq!(list[0]["kind"], json!("shape"));
+    assert_eq!(list[0]["text"], json!("one two three four five six…"));
+    assert!(list[0]["name"].is_string());
+    assert_eq!(r["slides"][1]["shapes"], plain["slides"][1]["shapes"], "the count stays");
+    assert!(s.execute("document.inspect", &json!({"shapes": "all"})).is_err());
+}

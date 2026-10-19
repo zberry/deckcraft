@@ -9,14 +9,29 @@ use crate::{Result, Session};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        cmd!(query "document.inspect", "Inspect Presentation", [], None, "{} → slides with titles, layouts, shape counts; selection; size; theme", has_doc, document),
+        cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; selection; size; theme", has_doc, document),
         cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes with ids, kinds, boxes, text, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
 }
 
-fn document(s: &mut Session, _p: &Value) -> Result<Value> {
+/// The first words of a shape's text, for `document.inspect {shapes: "brief"}`.
+fn brief_text(sh: &Shape) -> String {
+    const WORDS: usize = 6;
+    let text = sh.text.as_ref().map(|t| t.text()).unwrap_or_default();
+    let mut words = text.split_whitespace();
+    let head: Vec<&str> = words.by_ref().take(WORDS).collect();
+    let more = words.next().is_some();
+    format!("{}{}", head.join(" "), if more { "…" } else { "" })
+}
+
+fn document(s: &mut Session, p: &Value) -> Result<Value> {
+    let brief = match p.get("shapes") {
+        None | Some(Value::Null) => false,
+        Some(Value::String(v)) if v == "brief" => true,
+        Some(_) => return Err(bad("document.inspect", "`shapes` can only be \"brief\"")),
+    };
     let st = s.doc()?;
     let d = &st.doc;
     let slides: Vec<Value> = d
@@ -25,7 +40,12 @@ fn document(s: &mut Session, _p: &Value) -> Result<Value> {
         .enumerate()
         .map(|(i, sl)| {
             let layout = d.layout(sl.layout).map(|(_, l)| l.name.clone()).unwrap_or_default();
-            json!({"index": i, "number": i + 1, "id": sl.id, "title": sl.title(), "layout": layout, "shapes": sl.shapes.len(), "hidden": sl.hidden, "transition": sl.transition.as_ref().map(|t| t.kind.clone()), "animations": sl.animations.len(), "notes": sl.notes_text()})
+            let mut v = json!({"index": i, "number": i + 1, "id": sl.id, "title": sl.title(), "layout": layout, "shapes": sl.shapes.len(), "hidden": sl.hidden, "transition": sl.transition.as_ref().map(|t| t.kind.clone()), "animations": sl.animations.len(), "notes": sl.notes_text()});
+            if brief && let Some(o) = v.as_object_mut() {
+                let list: Vec<Value> = sl.shapes.iter().map(|sh| json!({"id": sh.id, "name": sh.name, "kind": sh.kind_name(), "text": brief_text(sh)})).collect();
+                o.insert("shapeList".into(), Value::from(list));
+            }
+            v
         })
         .collect();
     let m = d.masters.first();
