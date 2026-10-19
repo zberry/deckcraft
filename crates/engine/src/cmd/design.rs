@@ -1117,6 +1117,33 @@ fn date_now(format: &str) -> String {
     deckcraft_text::datetime::DateTime::now_local().and_then(|now| deckcraft_text::datetime::field_text(kind, None, now)).unwrap_or_else(today)
 }
 
+/// Like [`apply_header_footer`] for a slide brought in from elsewhere: the placeholders the
+/// presentation's flags ask for are added where the slide has none, and the ones the slide
+/// already has stay exactly as they are (text included).
+pub(crate) fn add_missing_header_footer(doc: &mut Presentation, i: usize, hf: &deckcraft_model::HeaderFooter) -> Result<()> {
+    let kept: Vec<Shape> = doc
+        .slides
+        .get(i)
+        .map(|sl| sl.shapes.iter().filter(|x| matches!(x.ph_type(), Some(PhType::Date | PhType::Footer | PhType::SlideNum))).cloned().collect())
+        .unwrap_or_default();
+    let has = |k: PhType| kept.iter().any(|x| x.ph_type() == Some(k));
+    let mut hf = hf.clone();
+    hf.date |= has(PhType::Date);
+    hf.footer |= has(PhType::Footer);
+    hf.slide_number |= has(PhType::SlideNum);
+    hf.hide_on_title = false;
+    apply_header_footer(doc, i, &hf, false)?;
+    if let Some(sl) = doc.slides.get_mut(i) {
+        let sl = Arc::make_mut(sl);
+        for k in kept {
+            if let Some(sh) = sl.shapes.iter_mut().find(|x| x.id == k.id) {
+                *sh = k;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Point a slide's date placeholder at a fixed date (its own plain text) or, for an empty
 /// `fixed`, at an automatic date field (one it already has keeps its format).
 fn set_date(sh: &mut Shape, fixed: &str, format: &str) {

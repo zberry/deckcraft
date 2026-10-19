@@ -7906,3 +7906,21 @@ fn ink_to_shape_explains_the_strokes_it_keeps() {
     assert_eq!(u[1]["index"], json!(2));
     assert!(u[1]["why"].as_str().unwrap().starts_with("too small"), "{r}");
 }
+
+/// Reused slides get the footer, date and slide number the presentation asks for (design.headerFooter),
+/// as new slides do; with the flags off they are left as the source had them.
+#[test]
+fn reused_slides_take_the_presentations_header_footer_settings() {
+    let ph = |s: &Session, i: usize, k: deckcraft_model::PhType| s.doc().unwrap().doc.slides[i].shapes.iter().any(|x| x.ph_type() == Some(k));
+    let mut s = Session::with_new();
+    s.execute("slide.new", &json!({"layout": "titleAndContent"})).unwrap();
+    let r = s.execute("slide.reuse", &json!({"sample": true, "slides": [1], "at": 1})).unwrap();
+    assert_eq!(r["slides"], 1);
+    let off = s.doc().unwrap().doc.slides[1].shapes.iter().filter(|x| x.ph_type() == Some(deckcraft_model::PhType::Footer)).count();
+    assert_eq!(off, 0, "flags off: nothing added");
+    s.execute("design.headerFooter", &json!({"footer": true, "footerText": "Acme", "slideNumber": true, "all": true})).unwrap();
+    s.execute("slide.reuse", &json!({"sample": true, "slides": [1], "at": 0})).unwrap();
+    assert!(ph(&s, 1, deckcraft_model::PhType::Footer), "reused slide has the footer");
+    assert!(ph(&s, 1, deckcraft_model::PhType::SlideNum), "reused slide has the number");
+    assert!(!ph(&s, 1, deckcraft_model::PhType::Date), "no date was asked for");
+}

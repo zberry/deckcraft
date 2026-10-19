@@ -237,6 +237,12 @@ fn reuse(s: &mut Session, p: &Value) -> Result<Value> {
             new_ids.push(sl.id);
             doc.slides.insert((at + k).min(doc.slides.len()), Arc::new(sl));
         }
+        // The presentation's footer, date and number settings (design.headerFooter) reach the
+        // reused slides as they do new ones; placeholders a source slide has are kept.
+        let hf = doc.header_footer.clone();
+        for (k, _) in new_ids.iter().enumerate() {
+            super::design::add_missing_header_footer(doc, (at + k).min(doc.slides.len().saturating_sub(1)), &hf)?;
+        }
         super::slide::join_section(doc, &new_ids);
         sel.slide = (at + new_ids.len()).saturating_sub(1).min(doc.slides.len().saturating_sub(1));
         sel.slides = new_ids.clone();
