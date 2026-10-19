@@ -7395,3 +7395,26 @@ fn text_runs_report_effective_sizes() {
     let again = sl["shapes"].as_array().unwrap().iter().find(|x| x["id"] == id).unwrap();
     assert_eq!(again["runs"][0]["size"].as_f64(), Some(size), "{sl}");
 }
+
+/// NN4: `file.export {all: true}` into a folder writes slide-NN.png inside it; a file path
+/// keeps the d1.png naming.
+#[test]
+fn export_all_into_a_folder_writes_slide_nn_files() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let dir = std::env::temp_dir().join(format!("deckcraft-export-dir-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let r = s.execute("file.export", &json!({"path": dir.to_string_lossy(), "format": "png", "all": true, "scale": 0.25})).unwrap();
+    let expect: Vec<Value> = (1..=3).map(|n| json!(dir.join(format!("slide-{n:02}.png")).to_string_lossy())).collect();
+    assert_eq!(r["files"], json!(expect), "{r}");
+    assert!(dir.join("slide-03.png").is_file());
+    let sub = format!("{}/new/", dir.to_string_lossy());
+    let r = s.execute("file.export", &json!({"path": sub, "format": "png", "all": true, "scale": 0.25})).unwrap();
+    assert_eq!(r["files"].as_array().map(Vec::len), Some(3), "{r}");
+    assert!(dir.join("new").join("slide-01.png").is_file());
+    let doc = command_specs().iter().find(|c| c.id == "file.export").unwrap().params;
+    assert!(doc.contains("slide-01.png"), "{doc}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
