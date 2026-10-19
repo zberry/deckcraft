@@ -813,3 +813,38 @@ fn pointer_answers_what_the_drag_moved_or_adjusted() {
     assert!(r["adjusted"][0]["adjust"].is_array(), "{r}");
     assert!(r.get("moved").is_none(), "a bend is not a move: {r}");
 }
+
+/// PP4: `$name` is an answer's `id` when the answer has one (shape.merge, smartArt.toShapes), and
+/// `$name.field` reaches any other field, so `$m.rect` or `$m.ids` can feed a later item.
+#[test]
+fn batch_refs_resolve_to_an_answers_id_and_dotted_fields() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    tool(&mut s, "add_slide", json!({"layout": "blank"}));
+    let out = tool(
+        &mut s,
+        "batch",
+        json!({"commands": [
+            {"command": "shape.insert", "params": {"preset": "rect", "rect": [50, 50, 150, 60]}, "as": "a"},
+            {"command": "shape.insert", "params": {"preset": "rect", "rect": [120, 50, 150, 60]}, "as": "b"},
+            {"command": "shape.merge", "params": {"op": "union", "ids": ["$a", "$b"]}, "as": "m"},
+            {"command": "set_text", "params": {"id": "$m", "text": "merged"}},
+            {"command": "shape.insert", "params": {"preset": "ellipse", "rect": "$m.rect"}},
+            {"command": "edit.delete", "params": {"ids": "$m.ids"}},
+        ]}),
+    );
+    let items = out.as_array().unwrap();
+    assert!(items.iter().all(|i| i["ok"] == true), "{out}");
+    assert!(items[2]["result"]["id"].is_number(), "{out}");
+    let bad = call(
+        &mut s,
+        8,
+        "tools/call",
+        json!({"name": "batch", "arguments": {"commands": [
+            {"command": "shape.insert", "params": {"preset": "rect", "rect": [1, 1, 5, 5]}, "as": "q"},
+            {"command": "set_text", "params": {"id": "$q.nope", "text": "x"}},
+        ]}}),
+    );
+    let text = bad["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(bad["result"]["isError"] == true && text.contains("$q.nope"), "{text}");
+}

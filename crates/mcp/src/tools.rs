@@ -93,7 +93,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "batch",
             "Run several commands",
-            "Run commands in order; stops at the first error unless keepGoing. Returns each result. Items may name a tool (add_shape, add_text_box, go_to_slide…) instead of a command, with the tool's arguments as params; a tool that answers an image (render_slide) is refused here: call it on its own. An item with `as: \"box\"` can be referred to by a later item's params as \"$box\" (its id), so insert, connect and animate fit in one batch.",
+            "Run commands in order; stops at the first error unless keepGoing. Returns each result. Items may name a tool (add_shape, add_text_box, go_to_slide…) instead of a command, with the tool's arguments as params; a tool that answers an image (render_slide) is refused here: call it on its own. An item with `as: \"box\"` can be referred to by a later item's params as \"$box\" (its id, when the answer is an object with an id; otherwise the whole answer) or \"$box.field\" (one field of the answer, e.g. $m.rect, $g.ids), so insert, connect and animate fit in one batch.",
             obj(
                 json!({"commands": {"type": "array", "items": obj(json!({"command": string("id"), "params": {"type": "object"}, "as": string("Name for this item's answer, for \"$name\" in later params")}), &["command"])}, "keepGoing": boolean("Continue after errors")}),
                 &["commands"],
@@ -332,7 +332,7 @@ fn is_tool(id: &str) -> bool {
 }
 
 /// Replaces every `"$name"` string in a batch item's params with the answer of the earlier item
-/// named `as: "name"` (its `id`, else the whole answer). A `$` followed by an identifier that
+/// named `as: "name"` (its `id` when the answer is an object with one, else the whole answer); `$name.field` is one field of the answer. A `$` followed by an identifier that
 /// names no earlier item is an error, so a typo is not sent on as text.
 /// A batch item name `$name` can refer to: letters, digits and `_`, not starting with a digit.
 fn is_ref_name(key: &str) -> bool {
@@ -342,12 +342,20 @@ fn is_ref_name(key: &str) -> bool {
 fn substitute(v: &mut Value, named: &std::collections::HashMap<String, Value>) -> Result<(), String> {
     match v {
         Value::String(s) => {
-            if let Some(key) = s.strip_prefix('$')
-                && is_ref_name(key)
-            {
-                match named.get(key) {
-                    Some(r) => *v = r.clone(),
-                    None => return Err(format!("`${key}` names no earlier item of this batch (give an item `\"as\": \"{key}\"` before it)")),
+            if let Some(rest) = s.strip_prefix('$') {
+                // `$name` or `$name.field`.
+                let (key, field) = match rest.split_once('.') {
+                    Some((k, f)) => (k, Some(f)),
+                    None => (rest, None),
+                };
+                if is_ref_name(key) && field.is_none_or(is_ref_name) {
+                    let Some(r) = named.get(key) else {
+                        return Err(format!("`${key}` names no earlier item of this batch (give an item `\"as\": \"{key}\"` before it)"));
+                    };
+                    *v = match field {
+                        Some(f) => r.get(f).cloned().ok_or_else(|| format!("`${key}.{f}`: the answer of `{key}` has no `{f}`"))?,
+                        None => r.get("id").cloned().unwrap_or_else(|| r.clone()),
+                    };
                 }
             }
         }
@@ -530,7 +538,7 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
                 match run {
                     Ok(v) => {
                         if let Some(name) = c.get("as").and_then(Value::as_str) {
-                            named.insert(name.to_string(), v.get("id").cloned().unwrap_or_else(|| v.clone()));
+                            named.insert(name.to_string(), v.clone());
                         }
                         out.push(json!({"command": id, "ok": true, "result": v}));
                     }
