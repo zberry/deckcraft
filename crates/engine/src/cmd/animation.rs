@@ -70,7 +70,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Animation Painter",
             ["Animations", "Advanced Animation"],
             Some("Alt+Shift+C"),
-            "{sticky?: bool, id?}",
+            "{id?: the animated shape to copy from (default: the selection), sticky?: bool (one animation.painterApply consumes the picked animations unless sticky: true, which keeps them for several applies)} → {armed, count}",
             has_selection,
             painter_pick
         ),
@@ -497,7 +497,10 @@ fn painter_pick(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn painter_apply(s: &mut Session, p: &Value) -> Result<Value> {
     let Some((painted, sticky)) = s.anim_painter.clone() else {
-        return Err(bad("animation.painterApply", "pick animations with the Animation Painter first"));
+        return Err(bad(
+            "animation.painterApply",
+            "pick animations with the Animation Painter first (one apply consumes them; animation.painter {sticky: true} keeps them for several applies)",
+        ));
     };
     if !sticky {
         s.anim_painter = None;

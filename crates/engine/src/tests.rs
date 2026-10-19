@@ -7080,3 +7080,21 @@ fn draw_stroke_makes_red_ink_and_ink_to_shape_converts_it() {
     let r = s.execute("draw.inkToShape", &json!({})).unwrap();
     assert!(!r["shapes"].as_array().unwrap().is_empty(), "{r}");
 }
+
+/// HH3: the Animation Painter is single-use unless `sticky: true`: the doc says so, and the
+/// refusal of a second apply names `sticky: true` as the way to keep it armed.
+#[test]
+fn animation_painter_doc_and_refusal_name_sticky() {
+    let doc = command_specs().iter().find(|cm| cm.id == "animation.painter").unwrap().params;
+    assert!(doc.contains("one animation.painterApply consumes the picked animations unless sticky: true"), "{doc}");
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 100, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let c = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 200, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("animation.add", &json!({"id": a, "effect": "fade"})).unwrap();
+    s.execute("animation.painter", &json!({"id": a})).unwrap();
+    s.execute("animation.painterApply", &json!({"ids": [b]})).unwrap();
+    let e = s.execute("animation.painterApply", &json!({"ids": [c]})).unwrap_err().to_string();
+    assert!(e.contains("animation.painter {sticky: true} keeps them for several applies"), "{e}");
+}
