@@ -51,7 +51,15 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("table.deleteColumn", "Delete Columns", ["Table Layout", "Rows & Columns"], None, "{col? (0-based), id?}", has_selection, |s, p| {
             rows_cols(s, p, "delCol")
         }),
-        cmd!("table.merge", "Merge Cells", ["Table Layout", "Merge"], None, "{from: [r, c], to: [r, c], id?} (0-based)", has_selection, merge),
+        cmd!(
+            "table.merge",
+            "Merge Cells",
+            ["Table Layout", "Merge"],
+            None,
+            "{from: [r, c], to: [r, c], id?} (0-based) → {changed, ids, range: [r0, c0, r1, c1]}",
+            has_selection,
+            merge
+        ),
         cmd!(
             "table.split",
             "Split Cells",
@@ -426,12 +434,14 @@ fn merge(s: &mut Session, p: &Value) -> Result<Value> {
     let sel = s.doc()?.selection.cells;
     let from = cell_param(p, "from").or(sel.map(|c| c.1)).ok_or_else(|| bad("table.merge", "missing `from`"))?;
     let to = cell_param(p, "to").or(sel.map(|c| c.2)).ok_or_else(|| bad("table.merge", "missing `to`"))?;
-    with_table(
-        s,
-        p,
-        "table.merge",
-        move |t| if t.merge(from.0, from.1, to.0, to.1) { Ok(()) } else { Err(bad("table.merge", "can't merge those cells")) },
-    )
+    let (r, id) = with_table_id(s, p, "table.merge", move |t| {
+        if t.merge(from.0, from.1, to.0, to.1) { Ok(()) } else { Err(bad("table.merge", "can't merge those cells")) }
+    })?;
+    let mut answer = changed_ids((r, vec![id.0]));
+    if let Value::Object(o) = &mut answer {
+        o.insert("range".into(), json!([from.0.min(to.0), from.1.min(to.1), from.0.max(to.0), from.1.max(to.1)]));
+    }
+    Ok(answer)
 }
 
 fn split(s: &mut Session, p: &Value) -> Result<Value> {

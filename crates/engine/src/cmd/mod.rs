@@ -646,6 +646,16 @@ fn ctx_xfrm(doc: &deckcraft_model::Presentation, sel: &crate::Selection, shape: 
 
 /// Run `f` on each target shape (copy-on-write), materialising inherited boxes first.
 pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<Value> {
+    edit_shapes_ids(s, p, cmd, f).map(|(v, _)| v)
+}
+
+/// [`edit_shapes`] that also names the shapes it edited, for commands that answer `{changed, ids}`.
+pub(crate) fn edit_shapes_ids(
+    s: &mut Session,
+    p: &Value,
+    cmd: &str,
+    f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>,
+) -> Result<(Value, Vec<u32>)> {
     let ids = targets(s, p)?;
     if ids.is_empty() {
         return Err(bad(cmd, "no shapes selected"));
@@ -657,6 +667,7 @@ pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut
         // slide current, so the window shows the change and later commands act there, and the
         // answer says so.
         let mut n = 0;
+        let mut edited: Vec<u32> = vec![];
         let mut elsewhere: Vec<usize> = vec![];
         let mut missing: Option<ShapeId> = None;
         for id in &ids {
@@ -678,6 +689,7 @@ pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut
                 }
                 f(sh)?;
                 n += 1;
+                edited.push(id.0);
                 if let Some(i) = on_slide
                     && !elsewhere.contains(&i)
                 {
@@ -700,8 +712,21 @@ pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut
             sel.text = None;
             sel.cells = None;
         }
-        Ok(if elsewhere.is_empty() { Value::from(n) } else { json!({"changed": n, "onSlides": elsewhere, "currentSlide": sel.slide}) })
+        let answer = if elsewhere.is_empty() { Value::from(n) } else { json!({"changed": n, "onSlides": elsewhere, "currentSlide": sel.slide}) };
+        Ok((answer, edited))
     })
+}
+
+/// The answer `{changed, ids}` for a command that used to answer the bare count `changed`; an
+/// answer that was already an object (the shapes were on other slides) keeps its fields.
+pub(crate) fn changed_ids((answer, ids): (Value, Vec<u32>)) -> Value {
+    match answer {
+        Value::Object(mut o) => {
+            o.insert("ids".into(), Value::from(ids));
+            Value::Object(o)
+        }
+        n => json!({"changed": n, "ids": ids}),
+    }
 }
 
 /// [`edit_shapes`] for edits a locked object refuses (move, size, rotate, flip, reshape, crop):
@@ -709,13 +734,23 @@ pub(crate) fn edit_shapes(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut
 /// looked up wherever the shape is, like the edit itself, so a locked shape on another slide
 /// stays put.
 pub(crate) fn edit_geometry(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<Value> {
+    edit_geometry_ids(s, p, cmd, f).map(|(v, _)| v)
+}
+
+/// [`edit_geometry`] that also names the shapes it edited.
+pub(crate) fn edit_geometry_ids(
+    s: &mut Session,
+    p: &Value,
+    cmd: &str,
+    f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>,
+) -> Result<(Value, Vec<u32>)> {
     let ids = targets(s, p)?;
     let st = s.doc()?;
     let free: Vec<u32> = ids.iter().filter(|id| !st.shape_anywhere(**id).is_some_and(|(x, _)| x.locked)).map(|id| id.0).collect();
     if !ids.is_empty() && free.is_empty() {
         return Err(bad(cmd, "the object is locked"));
     }
-    edit_shapes(s, &with_param(p, "ids", Value::from(free)), cmd, f)
+    edit_shapes_ids(s, &with_param(p, "ids", Value::from(free)), cmd, f)
 }
 
 pub(crate) fn current_shapes<'a>(doc: &'a deckcraft_model::Presentation, sel: &crate::Selection) -> Option<&'a Vec<deckcraft_model::Shape>> {

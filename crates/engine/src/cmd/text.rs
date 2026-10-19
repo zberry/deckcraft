@@ -76,7 +76,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Text",
             [],
             None,
-            "{id?, text, cell?: [r, c]} — replaces the whole text, keeping the first run's formatting",
+            "{id?, text, cell?: [r, c]} — replaces the whole text, keeping the first run's formatting → {changed, ids}",
             has_slide,
             set
         ),
@@ -1227,7 +1227,7 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let cell = p.get("cell").and_then(Value::as_array).and_then(|a| Some((a.first()?.as_u64()? as usize, a.get(1)?.as_u64()? as usize)));
     let inherited = inherited_aligns(s, id);
-    let r = edit_shapes(s, &json!({"id": id}), "text.set", |sh| {
+    let r = edit_shapes_ids(s, &json!({"id": id}), "text.set", |sh| {
         let target = match (&mut sh.kind, cell) {
             (ShapeKind::Table(t), Some((r, c))) => t.cell_mut(r, c).map(|x| &mut x.text),
             (ShapeKind::Table(_), None) => None,
@@ -1257,7 +1257,7 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     fit_text_box(s, id)?;
-    Ok(r)
+    Ok(changed_ids(r))
 }
 
 fn get(s: &mut Session, p: &Value) -> Result<Value> {

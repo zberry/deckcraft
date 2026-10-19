@@ -7146,3 +7146,53 @@ fn refused_edit_select_leaves_nothing_selected() {
     assert!(e.contains("the selection is now empty"), "{e}");
     assert!(s.doc().unwrap().selection.shapes.is_empty());
 }
+
+#[test]
+fn edit_commands_answer_changed_and_ids() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    for (cmd, params) in [
+        ("text.set", json!({"id": a, "text": "hi"})),
+        ("shape.fill", json!({"id": a, "color": "#ff0000"})),
+        ("shape.line", json!({"id": a, "none": true})),
+        ("shape.setBounds", json!({"id": a, "x": 20, "y": 20, "w": 80, "h": 40})),
+    ] {
+        let r = s.execute(cmd, &params).unwrap();
+        assert_eq!(r, json!({"changed": 1, "ids": [a]}), "{cmd}");
+    }
+}
+
+#[test]
+fn table_merge_and_slide_reset_and_revert_answer_facts() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let t = s.execute("insert.table", &json!({"rows": 2, "cols": 2, "rect": [100.0, 100.0, 400.0, 120.0]})).unwrap()["id"].as_u64().unwrap();
+    let r = s.execute("table.merge", &json!({"id": t, "from": [0, 1], "to": [0, 0]})).unwrap();
+    assert_eq!(r, json!({"changed": 1, "ids": [t], "range": [0, 0, 0, 1]}));
+
+    let mut s = session();
+    let r = s.execute("slide.reset", &json!({"index": 0})).unwrap();
+    assert!(r["reset"].as_array().is_some_and(|a| !a.is_empty()), "{r}");
+
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let r = s.execute("edit.delete", &json!({"ids": [a]})).unwrap();
+    assert_eq!(r, json!({"deleted": 1, "ids": [a]}));
+    let r = s.execute("edit.duplicate", &json!({"ids": [b]})).unwrap();
+    assert_eq!(r["ids"].as_array().map(Vec::len), Some(1));
+    let r = s.execute("file.revert", &json!({})).unwrap();
+    assert_eq!(r, json!({"reverted": true, "dirty": false}));
+}
+
+#[test]
+fn shape_merge_answers_the_result_rect() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [60, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    let r = s.execute("shape.merge", &json!({"op": "union", "ids": [a, b]})).unwrap();
+    let rect: Vec<f64> = r["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert!((rect[0] - 10.0).abs() < 0.1 && (rect[2] - 150.0).abs() < 0.1 && (rect[3] - 50.0).abs() < 0.1, "{rect:?}");
+    assert!(r["ids"].as_array().is_some_and(|a| !a.is_empty()));
+}

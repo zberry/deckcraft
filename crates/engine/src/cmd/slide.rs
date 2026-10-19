@@ -39,7 +39,15 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "slide.selectSlides", "Select Slides", [], None, "{ids?: [slide id], indices?: [index (0-based)], add?: bool}", has_slide, select_slides),
         cmd!("slide.hide", "Hide Slide", ["Slide Show", "Set Up"], None, "{index? (0-based), hidden?: bool}", has_slide, hide),
         cmd!("slide.layout", "Layout", ["Home", "Slides"], None, "{layout: name or kind, index? (0-based)}", has_slide, set_layout),
-        cmd!("slide.reset", "Reset", ["Home", "Slides"], None, "{index? (0-based)}", has_slide, reset),
+        cmd!(
+            "slide.reset",
+            "Reset",
+            ["Home", "Slides"],
+            None,
+            "{index? (0-based)} → {reset: [ids of the placeholders put back to the layout]}",
+            has_slide,
+            reset
+        ),
         cmd!(
             "slide.notes",
             "Notes",
@@ -559,9 +567,9 @@ fn reset(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         sel.shapes.clear();
-        Ok(())
-    })?;
-    ok()
+        Ok(doc.slides.get(i).map(|x| x.shapes.iter().filter(|sh| sh.ph.is_some()).map(|sh| sh.id.0).collect::<Vec<_>>()).unwrap_or_default())
+    })
+    .map(|ids| json!({"reset": ids}))
 }
 
 fn notes(s: &mut Session, p: &Value) -> Result<Value> {

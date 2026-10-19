@@ -24,7 +24,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Merge Shapes",
         ["Shape Format", "Insert Shapes", "Merge Shapes"],
         None,
-        "{op: union|combine|fragment|intersect|subtract, ids?: shapes in selection order (the first one's formatting is kept)} → {ids}",
+        "{op: union|combine|fragment|intersect|subtract, ids?: shapes in selection order (the first one's formatting is kept)} → {ids, rect: [x, y, w, h] of the result}",
         has_two,
         merge
     )]
@@ -250,7 +250,9 @@ fn merge(s: &mut Session, p: &Value) -> Result<Value> {
         let _ = list;
         Ok(())
     })?;
-    Ok(json!({"ids": new_ids.iter().map(|i| i.0).collect::<Vec<_>>()}))
+    let bounds = results.iter().filter_map(area_geom).map(|(x, _)| Rect::new(x.x, x.y, x.x + x.w, x.y + x.h)).reduce(|a, b| a.union(b));
+    let rect = bounds.map(|b| json!([b.x0, b.y0, b.width(), b.height()]));
+    Ok(json!({"ids": new_ids.iter().map(|i| i.0).collect::<Vec<_>>(), "rect": rect}))
 }
 
 #[cfg(test)]

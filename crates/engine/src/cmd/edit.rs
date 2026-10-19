@@ -35,8 +35,8 @@ pub fn specs() -> Vec<CommandSpec> {
             paste_special
         ),
         cmd!("edit.pasteText", "Paste and Match Formatting", ["Edit"], Some("Cmd+Shift+V"), "{text?}", has_doc, paste_text),
-        cmd!("edit.duplicate", "Duplicate", ["Edit"], Some("Cmd+D"), "{ids?}", has_selection, duplicate),
-        cmd!("edit.delete", "Delete", ["Edit"], Some("Delete"), "{ids?, scope?: slides}", has_doc, delete),
+        cmd!("edit.duplicate", "Duplicate", ["Edit"], Some("Cmd+D"), "{ids?} → {ids: the copies}", has_selection, duplicate),
+        cmd!("edit.delete", "Delete", ["Edit"], Some("Delete"), "{ids?, scope?: slides} → {deleted: count, ids}", has_doc, delete),
         cmd!(noundo "edit.selectAll", "Select All", ["Edit"], Some("Cmd+A"), "{scope?: slides}", has_slide, select_all),
         cmd!(noundo "edit.deselect", "Deselect", [], Some("Escape"), "{}", has_doc, deselect),
         cmd!(noundo "edit.select", "Select Objects", [], None, "{ids: [id], add?: bool, toggle?: bool}", has_slide, select),
@@ -593,7 +593,7 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let ids = targets(s, p)?;
     if ids.is_empty() {
-        return ok();
+        return Ok(json!({"deleted": 0, "ids": []}));
     }
     s.edit(|doc, sel| {
         let shapes = crate::shapes_mut(doc, sel).ok_or_else(|| bad("edit.delete", "no slide"))?;
@@ -618,7 +618,7 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
         }
         sel.shapes.retain(|i| !ids.contains(i));
         sel.text = None;
-        Ok(json!({"deleted": n}))
+        Ok(json!({"deleted": n, "ids": ids.iter().map(|i| i.0).collect::<Vec<_>>()}))
     })
 }
 

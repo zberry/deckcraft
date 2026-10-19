@@ -71,7 +71,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(query "file.recovery.list", "Recovered Presentations", [], None, "{} → [{uid, path, title, saved}]", always, recovery_list),
         cmd!(noundo "file.recovery.open", "Open Recovered Presentations", [], None, "{} → {opened: [document index]}", always, recovery_open),
         cmd!(noundo "file.recovery.discard", "Discard Recovered Presentations", [], None, "{uid?: one entry (else all)}", always, recovery_discard),
-        cmd!(noundo "file.revert", "Revert", [], None, "{}", has_doc, revert),
+        cmd!(noundo "file.revert", "Revert", [], None, "{} → {reverted, dirty}", has_doc, revert),
         cmd!(noundo "window.next", "Next Window", ["Window"], Some("Cmd+`"), "{index?}", has_doc, next_window),
     ]
 }
@@ -749,7 +749,7 @@ fn revert(s: &mut Session, _p: &Value) -> Result<Value> {
     st.doc = st.saved_doc.clone();
     st.history = crate::History { limit: st.history.limit, ..Default::default() };
     st.revision += 1;
-    ok()
+    Ok(json!({"reverted": true, "dirty": st.is_dirty()}))
 }
 
 fn next_window(s: &mut Session, p: &Value) -> Result<Value> {

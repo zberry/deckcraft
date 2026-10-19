@@ -60,7 +60,7 @@ pub fn specs() -> Vec<CommandSpec> {
             move_by
         ),
         cmd!("shape.resize", "Size", ["Shape Format", "Size"], None, "{w?: pt, h?: pt, lockAspect?: bool, ids?}", has_selection, resize),
-        cmd!("shape.setBounds", "Position and Size", [], None, "{x, y, w, h, ids?}", has_selection, set_bounds),
+        cmd!("shape.setBounds", "Position and Size", [], None, "{x, y, w, h, ids?} → {changed, ids}", has_selection, set_bounds),
         cmd!(
             "shape.rotate",
             "Rotation",
@@ -96,7 +96,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Shape Fill",
             ["Shape Format", "Shape Styles"],
             None,
-            "{color? | none?: true | gradient?: {stops: [[pos, color]], angle?, kind?: linear|radial} | picture?: base64 | pattern?: {preset, fg, bg} | transparency?: 0..1 | reset?: true, ids?, pictureProps?: {tile?: bool, offsetX?, offsetY?: pt, scaleX?, scaleY?: 0..10, align?: tl|t|tr|l|ctr|r|bl|b|br, mirror?: none|x|y|xy, stretch?: [l, t, r, b] fractions, rotateWithShape?: bool} (adjusts a picture fill)}; a group also formats its members",
+            "{color? | none?: true | gradient?: {stops: [[pos, color]], angle?, kind?: linear|radial} | picture?: base64 | pattern?: {preset, fg, bg} | transparency?: 0..1 | reset?: true, ids?, pictureProps?: {tile?: bool, offsetX?, offsetY?: pt, scaleX?, scaleY?: 0..10, align?: tl|t|tr|l|ctr|r|bl|b|br, mirror?: none|x|y|xy, stretch?: [l, t, r, b] fractions, rotateWithShape?: bool} (adjusts a picture fill)} → {changed, ids}; a group also formats its members",
             has_selection,
             fill
         ),
@@ -105,7 +105,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Shape Outline",
             ["Shape Format", "Shape Styles"],
             None,
-            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow (at the start of the line), tail? (at the end), headSize?: sm|med|lg, tailSize?, reset?, ids?}; a group also formats its members",
+            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow (at the start of the line), tail? (at the end), headSize?: sm|med|lg, tailSize?, reset?, ids?} → {changed, ids}; a group also formats its members",
             has_selection,
             line
         ),
@@ -245,7 +245,7 @@ fn resize(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn set_bounds(s: &mut Session, p: &Value) -> Result<Value> {
-    edit_geometry(s, p, "shape.setBounds", |sh| {
+    edit_geometry_ids(s, p, "shape.setBounds", |sh| {
         if let Some(x) = sh.xfrm.as_mut() {
             x.x = clamp_pos(f64_param(p, "x").unwrap_or(x.x));
             x.y = clamp_pos(f64_param(p, "y").unwrap_or(x.y));
@@ -254,6 +254,7 @@ fn set_bounds(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Ok(())
     })
+    .map(changed_ids)
 }
 
 const SIZE_POS: &str = "shape.sizePosition";
@@ -563,7 +564,7 @@ pub(crate) fn gradient_param(v: &Value) -> Option<Gradient> {
 
 /// Fill and outline apply to a group's visible members as well as its container. Other edits
 /// (notably geometry) still target only the selected shape. The whole traversal stays in one edit.
-fn edit_group_appearance(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<Value> {
+fn edit_group_appearance(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<(Value, Vec<u32>)> {
     fn apply(sh: &mut deckcraft_model::Shape, depth: usize, f: &dyn Fn(&mut deckcraft_model::Shape) -> Result<()>) -> Result<()> {
         if depth > 64 {
             return Ok(());
@@ -576,7 +577,7 @@ fn edit_group_appearance(s: &mut Session, p: &Value, cmd: &str, f: impl Fn(&mut 
         }
         Ok(())
     }
-    edit_shapes(s, p, cmd, |sh| apply(sh, 0, &f))
+    super::edit_shapes_ids(s, p, cmd, |sh| apply(sh, 0, &f))
 }
 
 fn fill(s: &mut Session, p: &Value) -> Result<Value> {
@@ -672,6 +673,7 @@ fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Ok(())
     })
+    .map(changed_ids)
 }
 
 /// Applies Format Shape ▸ Picture or texture fill options to a picture fill.
@@ -808,6 +810,7 @@ fn line(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Ok(())
     })
+    .map(changed_ids)
 }
 
 fn shadow_preset(v: &Value) -> Option<Option<Shadow>> {
