@@ -237,6 +237,7 @@ fn reuse(s: &mut Session, p: &Value) -> Result<Value> {
             new_ids.push(sl.id);
             doc.slides.insert((at + k).min(doc.slides.len()), Arc::new(sl));
         }
+        super::slide::join_section(doc, &new_ids);
         sel.slide = (at + new_ids.len()).saturating_sub(1).min(doc.slides.len().saturating_sub(1));
         sel.slides = new_ids.clone();
         sel.shapes.clear();

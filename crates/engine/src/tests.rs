@@ -7681,3 +7681,50 @@ fn slide_reset_answers_what_it_reset_and_what_it_brought_back() {
     let r = s.execute("slide.reset", &json!({"index": 0})).unwrap();
     assert_eq!(r["added"], json!([]), "{r}");
 }
+
+/// Every slide sits in exactly one section when the deck has sections (the slide counts that
+/// `document.inspect` sums up add up to the deck's), and no section names a slide that is gone.
+fn assert_every_slide_in_a_section(s: &Session, when: &str) {
+    let d = &s.doc().unwrap().doc;
+    for sl in &d.slides {
+        let n = d.sections.iter().filter(|x| x.slides.contains(&sl.id)).count();
+        assert_eq!(n, 1, "{when}: slide {} is in {n} sections", sl.id.0);
+    }
+    let total: usize = d.sections.iter().map(|x| x.slides.len()).sum();
+    assert_eq!(total, d.slides.len(), "{when}: section slide counts sum to {total} for {} slides", d.slides.len());
+}
+
+#[test]
+fn every_slide_stays_in_a_section_whatever_adds_it() {
+    let mut s = session();
+    for _ in 0..3 {
+        s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    }
+    s.execute("section.add", &json!({"name": "Intro", "at": 0})).unwrap();
+    s.execute("section.add", &json!({"name": "Body", "at": 2})).unwrap();
+    assert_every_slide_in_a_section(&s, "start");
+    s.execute("slide.new", &json!({"layout": "blank", "at": 0})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank", "at": 2})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank", "at": 99})).unwrap();
+    assert_every_slide_in_a_section(&s, "slide.new at");
+    s.execute("slide.duplicate", &json!({"index": 2})).unwrap();
+    s.execute("slide.duplicate", &json!({"indices": [0, 1]})).ok();
+    assert_every_slide_in_a_section(&s, "slide.duplicate");
+    for (from, to) in [(0, 3), (3, 0), (2, 2), (5, 1)] {
+        s.execute("slide.move", &json!({"from": from, "to": to})).unwrap();
+        assert_every_slide_in_a_section(&s, "slide.move");
+    }
+    // Paste of copied slides, Reuse Slides and the summary zoom's new slide.
+    s.execute("slide.go", &json!({"index": 1})).unwrap();
+    s.execute("edit.copy", &json!({"scope": "slides"})).unwrap();
+    s.execute("edit.paste", &json!({"scope": "slides"})).unwrap();
+    assert_every_slide_in_a_section(&s, "edit.paste");
+    s.execute("slide.reuse", &json!({"sample": true, "slides": [0, 1]})).unwrap();
+    assert_every_slide_in_a_section(&s, "slide.reuse");
+    s.execute("slide.reuse", &json!({"sample": true, "slides": [0], "at": 0})).unwrap();
+    assert_every_slide_in_a_section(&s, "slide.reuse at 0");
+    s.execute("insert.zoom", &json!({"kind": "summary", "slides": [1, 2]})).unwrap();
+    assert_every_slide_in_a_section(&s, "insert.zoom summary");
+    s.execute("slide.delete", &json!({"index": 1})).unwrap();
+    assert_every_slide_in_a_section(&s, "slide.delete");
+}

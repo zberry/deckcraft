@@ -255,7 +255,9 @@ fn zoom(s: &mut Session, p: &Value) -> Result<Value> {
             }
             slide.shapes.extend(shapes);
             let at = first_target.min(doc.slides.len());
+            let new_id = slide.id;
             doc.slides.insert(at, Arc::new(slide));
+            super::slide::join_section(doc, &[new_id]);
             sel.slide = at;
             sel.slides.clear();
         } else {

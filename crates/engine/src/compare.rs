@@ -418,14 +418,19 @@ pub fn accept(doc: &mut Presentation, rev: &Presentation, change: &Change) -> cr
             let Some(b) = change.revised.and_then(|r| rev.slides.get(r)).cloned() else { return Ok(None) };
             let sl = adopt(doc, rev, &b, None)?;
             let at = change.slide.min(doc.slides.len());
+            let new_id = sl.id;
             doc.slides.insert(at, Arc::new(sl));
+            crate::cmd::slide::join_section(doc, &[new_id]);
             Ok(Some(at))
         }
         ChangeKind::Deleted => {
             if change.slide >= doc.slides.len() || doc.slides.len() <= 1 {
                 return Ok(None);
             }
-            doc.slides.remove(change.slide);
+            let gone = doc.slides.remove(change.slide).id;
+            for sec in &mut doc.sections {
+                sec.slides.retain(|x| *x != gone);
+            }
             Ok(Some(change.slide.min(doc.slides.len().saturating_sub(1))))
         }
     }
@@ -583,6 +588,20 @@ mod tests {
         s.execute("review.reject", &json!({"index": 0})).unwrap();
         let left = s.execute("review.revisions", &json!({})).unwrap()["changes"].as_array().unwrap().clone();
         assert_eq!(left.as_slice(), &before[1..], "the rejected one goes, the others stay in order");
+    }
+
+    #[test]
+    fn accepting_inserted_and_deleted_slides_keeps_sections_in_step() {
+        let (mut s, rev, _) = decks();
+        s.execute("section.add", &json!({"name": "A", "at": 0})).unwrap();
+        s.execute("section.add", &json!({"name": "B", "at": 2})).unwrap();
+        s.execute("review.compare", &json!({"name": "rev.deckcraft", "data": rev})).unwrap();
+        s.execute("review.accept", &json!({"all": true})).unwrap();
+        let d = &s.doc().unwrap().doc;
+        for sl in &d.slides {
+            assert_eq!(d.sections.iter().filter(|x| x.slides.contains(&sl.id)).count(), 1, "slide {} is in exactly one section", sl.id.0);
+        }
+        assert_eq!(d.sections.iter().map(|x| x.slides.len()).sum::<usize>(), d.slides.len(), "no section names a deleted slide");
     }
 
     #[test]

@@ -342,6 +342,26 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
+/// Put slides just inserted into the deck (contiguous, in order) into the section of the slide
+/// before the first of them, or the first section when they lead the deck, so that no slide is
+/// ever outside every section. Nothing happens in a deck without sections.
+pub(crate) fn join_section(doc: &mut Presentation, ids: &[SlideId]) {
+    let Some(first) = ids.first().and_then(|id| doc.slide_index(*id)) else { return };
+    if doc.sections.is_empty() {
+        return;
+    }
+    let prev = first.checked_sub(1).and_then(|i| doc.slides.get(i)).map(|x| x.id);
+    let fresh: Vec<SlideId> = ids.iter().copied().filter(|id| doc.section_of(*id).is_none()).collect();
+    if let Some(si) = prev.and_then(|p| doc.section_of(p))
+        && let Some(sec) = doc.sections.get_mut(si)
+    {
+        let pos = prev.and_then(|p| sec.slides.iter().position(|x| *x == p)).map_or(sec.slides.len(), |k| k + 1);
+        sec.slides.splice(pos.min(sec.slides.len())..pos.min(sec.slides.len()), fresh);
+    } else if let Some(sec) = doc.sections.first_mut() {
+        sec.slides.splice(0..0, fresh);
+    }
+}
+
 fn move_slide(s: &mut Session, p: &Value) -> Result<Value> {
     let from = opt_usize_param(p, "from", "slide.move")?.unwrap_or(s.doc()?.selection.slide);
     let to = opt_usize_param(p, "to", "slide.move")?.ok_or_else(|| bad("slide.move", "missing `to`"))?;
