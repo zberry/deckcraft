@@ -21,7 +21,7 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             new
         ),
-        cmd!(query "file.templates", "Starter Templates", [], None, "{} → [{name, summary, theme, slides}]", always, templates),
+        cmd!(query "file.templates", "Starter Templates", [], None, "{} → {templates: [{name, summary, theme, slides}], sample: {name, summary, slides} (the built-in sample deck, reusable with slide.reuse {sample: true})}", always, templates),
         cmd!(noundo "file.open", "Open…", ["File"], Some("Cmd+O"), "{path}", always, open),
         cmd!(
             noundo "file.adopt",
@@ -89,7 +89,21 @@ fn slide_size(p: &Value) -> deckcraft_geom::Size {
 }
 
 fn templates(_s: &mut Session, _p: &Value) -> Result<Value> {
+    // The built-in sample deck is not a starter (file.new can't make it) but its slides can be
+    // reused: slide.reuse {sample: true}.
+    // The sample never changes, so its slide count is worked out once, not by building the deck
+    // on every call.
+    static SAMPLE_SLIDES: std::sync::OnceLock<Option<usize>> = std::sync::OnceLock::new();
+    let sample_slides = *SAMPLE_SLIDES.get_or_init(|| {
+        let mut tmp = Session::new();
+        crate::sample::open_sample(&mut tmp).ok().and_then(|_| tmp.doc().ok().map(|st| st.doc.slides.len()))
+    });
     Ok(json!({
+        "sample": {
+            "name": "Sample deck",
+            "summary": "The built-in sample presentation (what --sample opens); reuse its slides with slide.reuse {sample: true}",
+            "slides": sample_slides,
+        },
         "templates": crate::templates::starters().iter().map(|t| json!({
             "name": t.name,
             "summary": t.summary,

@@ -32,7 +32,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Reuse Slides…",
             ["Home", "Slides", "New Slide"],
             None,
-            "{path? | data: base64, name?, slides?: [index] (0-based, default all), keepFormatting?: bool (default false: use the destination theme), at?: index (default after the current slide)}",
+            "{path? | data: base64, name? | sample: true (the built-in sample deck that --sample opens; file.templates lists it), slides?: [index] (0-based, default all), keepFormatting?: bool (default false: use the destination theme), at?: index (default after the current slide)}",
             has_doc,
             reuse
         ),
@@ -153,8 +153,19 @@ fn matching_layout(doc: &Presentation, name: &str, kind: deckcraft_model::Layout
 }
 
 fn reuse(s: &mut Session, p: &Value) -> Result<Value> {
-    let (name, bytes) = super::insert::media_bytes(p, "slide.reuse")?;
-    let src = super::file::open_presentation(&name, &bytes)?;
+    let (name, src) = if bool_or(p, "sample", false) {
+        if p.get("path").is_some() || p.get("data").is_some() {
+            return Err(bad("slide.reuse", "pass `sample` or `path`/`data`, not both"));
+        }
+        let mut tmp = Session::new();
+        crate::sample::open_sample(&mut tmp)?;
+        let doc = tmp.doc()?.doc.as_ref().clone();
+        ("the sample deck".to_string(), doc)
+    } else {
+        let (name, bytes) = super::insert::media_bytes(p, "slide.reuse")?;
+        let src = super::file::open_presentation(&name, &bytes)?;
+        (name, src)
+    };
     let n = src.slides.len();
     let picked: Vec<usize> = match p.get("slides") {
         Some(Value::Array(a)) => {
@@ -459,5 +470,22 @@ mod tests {
         let titles: Vec<String> = s.doc().expect("doc").doc.slides.iter().map(|x| x.title()).collect();
         assert!(titles.iter().any(|t| t == "Alpha") && titles.iter().any(|t| t == "Gamma"));
         assert!(!titles.iter().any(|t| t == "Beta"), "a slide that was not picked stays out");
+    }
+
+    /// HH6: `sample: true` reuses slides of the built-in sample deck, and file.templates lists it.
+    #[test]
+    fn the_sample_deck_can_be_reused() {
+        let mut s = Session::with_new();
+        let listed = s.execute("file.templates", &json!({})).unwrap();
+        let n = listed["sample"]["slides"].as_u64().expect("sample slide count") as usize;
+        assert!(n > 2, "{listed}");
+        assert_eq!(s.execute("file.templates", &json!({})).unwrap(), listed, "the cached count answers the same again");
+        let before = s.doc().unwrap().doc.slides.len();
+        let r = s.execute("slide.reuse", &json!({"sample": true, "slides": [1]})).unwrap();
+        assert_eq!(s.doc().unwrap().doc.slides.len(), before + 1, "{r}");
+        s.execute("slide.reuse", &json!({"sample": true})).unwrap();
+        assert_eq!(s.doc().unwrap().doc.slides.len(), before + 1 + n);
+        assert!(s.execute("slide.reuse", &json!({"sample": true, "path": "x.pptx"})).is_err());
+        assert!(s.execute("slide.reuse", &json!({"sample": true, "slides": [999]})).is_err());
     }
 }
