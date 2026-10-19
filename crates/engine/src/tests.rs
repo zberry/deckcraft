@@ -7336,3 +7336,21 @@ fn inspect_in_master_and_layout_view_lists_their_shapes() {
     let r = s.execute("slide.inspect", &json!({})).unwrap();
     assert!(r.get("editing").is_none(), "{r}");
 }
+
+/// LL2: a zoom shape in slide.inspect says what it points at.
+#[test]
+fn inspect_names_what_a_zoom_points_at() {
+    let mut s = session();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("section.add", &json!({"name": "Part B", "at": 1})).unwrap();
+    s.execute("slide.go", &json!({"index": 0})).unwrap();
+    s.execute("insert.zoom", &json!({"kind": "slide", "slides": [1]})).unwrap();
+    s.execute("insert.zoom", &json!({"kind": "section", "sections": [0]})).unwrap();
+    let r = s.execute("slide.inspect", &json!({"index": 0})).unwrap();
+    let zooms: Vec<&serde_json::Value> = r["shapes"].as_array().unwrap().iter().filter(|x| x.get("zoom").is_some()).collect();
+    assert_eq!(zooms.len(), 2, "{r}");
+    assert_eq!(zooms[0]["zoom"], json!({"kind": "slide", "slide": 1, "returnToZoom": false}), "{r}");
+    assert_eq!(zooms[1]["zoom"]["kind"], "section", "{r}");
+    assert_eq!(zooms[1]["zoom"]["returnToZoom"], true, "{r}");
+    assert!(zooms[1]["zoom"]["section"].is_string(), "{r}");
+}

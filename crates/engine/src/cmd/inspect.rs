@@ -10,7 +10,7 @@ use crate::{Result, Session};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; selection; size; theme", has_doc, document),
-        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
+        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
@@ -175,6 +175,26 @@ pub fn shape_summary(ctx: Option<&Ctx>, sh: &Shape, depth: usize) -> Value {
     v
 }
 
+/// What a zoom shape (Insert ▸ Zoom) points at: `{kind, slide | section, returnToZoom}`; `slide` is
+/// the target's index, `section` the name of the section a section zoom opens.
+fn zoom_of(doc: &deckcraft_model::Presentation, sh: &Shape) -> Option<Value> {
+    use deckcraft_model::text::Action;
+    if !matches!(sh.kind, ShapeKind::Picture { .. }) {
+        return None;
+    }
+    let kind = ["Summary", "Section", "Slide"].into_iter().find(|k| sh.name.starts_with(&format!("{k} Zoom ")))?;
+    let click = sh.click.as_ref()?;
+    let Action::Slide { slide } = &click.action else { return None };
+    let index = doc.slide_index(*slide)?;
+    let back = click.zoom_return.is_some();
+    let mut z = json!({"kind": kind.to_ascii_lowercase(), "returnToZoom": back});
+    if kind == "Section" {
+        z["section"] = json!(doc.sections.iter().find(|s| s.slides.first() == Some(slide)).map(|s| s.name.clone()));
+    }
+    z["slide"] = json!(index);
+    Some(z)
+}
+
 fn round(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
@@ -226,6 +246,15 @@ fn slide(s: &mut Session, p: &Value) -> Result<Value> {
     let sl = st.doc.slides.get(i).ok_or_else(|| super::no_slide("slide.inspect", i, st.doc.slides.len()))?;
     let ctx = Ctx::for_slide(&st.doc, sl);
     let mut shapes: Vec<Value> = sl.shapes.iter().map(|sh| shape_summary(ctx.as_ref(), sh, 0)).collect();
+    // The zoom shapes say where they go (Insert ▸ Zoom keeps no extra record: a picture that
+    // jumps to a slide, named by its kind).
+    for (sh, v) in sl.shapes.iter().zip(shapes.iter_mut()) {
+        if let Some(z) = zoom_of(&st.doc, sh)
+            && let Some(o) = v.as_object_mut()
+        {
+            o.insert("zoom".into(), z);
+        }
+    }
     // In Slide Master / layout view the shapes being edited are the master's or layout's, not
     // the slide's behind the window.
     let mut editing: Option<Value> = None;
