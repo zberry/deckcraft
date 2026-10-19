@@ -731,6 +731,11 @@ fn key_during_a_show_adds_where_the_show_is() {
     let v: Value = serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(v["show"], true, "{v}");
     assert_eq!(v["showing"], json!({"slide": 2, "step": 1, "ended": false}), "{v}");
+    assert!(!calls.borrow().iter().any(|(m, _)| m == "ui.inspect"), "the key's own `showing` is used: no second round trip");
+    // Without `showing` in the key's answer the show is asked for.
+    let r = call(&mut s, 4, "tools/call", json!({"name": "key", "arguments": {"key": "PageDown"}}));
+    let v: Value = serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(v["showing"], json!({"slide": 3, "step": 0, "ended": false}), "{v}");
     assert!(calls.borrow().iter().any(|(m, _)| m == "ui.inspect"));
     // Outside a show the answer is the key's own, with no inspect call.
     calls.borrow_mut().clear();

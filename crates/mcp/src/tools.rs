@@ -619,7 +619,10 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
                 Some("arrowleft" | "arrowright" | "arrowup" | "arrowdown" | "left" | "right" | "up" | "down")
             );
             wrap(b.call("ui.key", p).map(|mut v| {
+                // The app's answer carries `showing` already; ask `ui.inspect` only when it doesn't.
+                let has_showing = v.get("showing").is_some_and(|x| !x.is_null());
                 if v.get("show").and_then(Value::as_bool) == Some(true)
+                    && !has_showing
                     && let Some(showing) = b.call("ui.inspect", json!({})).ok().and_then(|i| i.get("showing").cloned())
                     && let Some(o) = v.as_object_mut()
                 {

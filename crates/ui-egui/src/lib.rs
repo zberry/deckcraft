@@ -497,6 +497,8 @@ pub struct SlideApp {
     shot_token: u64,
     queued_shots: Vec<(u64, f64, u32)>,
     pending_shots: Vec<(u64, Option<String>, Sender<ControlResponse>, f64)>,
+    /// Show keys queued by `ui.key`: the reply waits until the frame that handled the key (NN1).
+    pending_keys: Vec<(Sender<ControlResponse>, u32)>,
     styled: bool,
     restyle: bool,
     fonts_ready: bool,
@@ -582,6 +584,7 @@ impl SlideApp {
             shot_token: 0,
             queued_shots: vec![],
             pending_shots: vec![],
+            pending_keys: vec![],
             styled: false,
             restyle: true,
             fonts_ready: false,
@@ -1619,6 +1622,7 @@ impl SlideApp {
         }
         self.last_time = now;
         self.drain_control(ctx);
+        self.answer_show_keys(ctx);
         self.poll_opening();
         if self.fonts_ready {
             self.drain_inbox();
@@ -1984,6 +1988,7 @@ impl SlideApp {
                 control::Outcome::Done(v) => {
                     let _ = reply.send(v);
                 }
+                control::Outcome::AfterKey => self.pending_keys.push((reply, 0)),
                 control::Outcome::Screenshot { path } => {
                     self.shot_token += 1;
                     let token = self.shot_token;
@@ -1993,6 +1998,25 @@ impl SlideApp {
             }
         }
         self.control_rx = Some(rx);
+    }
+
+    /// Answer `ui.key` calls whose key a frame has handled: the answer then carries `showing`.
+    fn answer_show_keys(&mut self, ctx: &egui::Context) {
+        if self.pending_keys.is_empty() {
+            return;
+        }
+        for (_, frames) in &mut self.pending_keys {
+            *frames += 1;
+        }
+        // Frame N queued the key, frame N+1 delivered and handled it; N+2 sees the result.
+        if self.synthetic.is_empty() && self.pending_keys.iter().any(|(_, f)| *f >= 3) {
+            let showing = control::inspect(self, ctx).get("showing").cloned().unwrap_or(Value::Null);
+            for (reply, _) in std::mem::take(&mut self.pending_keys) {
+                let _ = reply.send(json!({"ok": true, "result": {"show": true, "showing": showing}}));
+            }
+        } else {
+            ctx.request_repaint();
+        }
     }
 
     fn issue_screenshots(&mut self, ctx: &egui::Context) {

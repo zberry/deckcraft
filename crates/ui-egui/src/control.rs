@@ -61,7 +61,11 @@ impl ControlRequest {
 
 pub enum Outcome {
     Done(Value),
-    Screenshot { path: Option<String> },
+    Screenshot {
+        path: Option<String>,
+    },
+    /// A show key is queued: the app answers after the frame that handled it.
+    AfterKey,
 }
 
 fn ok(v: Value) -> Outcome {
@@ -188,7 +192,7 @@ pub fn handle(app: &mut SlideApp, ctx: &egui::Context, req: &ControlRequest) -> 
             {
                 app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
                 app.synthetic.push(egui::Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers: egui::Modifiers::NONE });
-                return ok(json!({"show": true}));
+                return Outcome::AfterKey;
             }
             wrap(app.session.key(k, mods_from(p)).map_err(|e| e.to_string()))
         }
@@ -463,6 +467,45 @@ mod tests {
         assert!(ControlRequest::abandon(&req.state), "a pending request is abandoned");
         assert!(!req.take(), "an abandoned request is never taken");
         assert!(ControlRequest::abandon(&req.state), "abandoning twice stays abandoned");
+    }
+
+    /// NN1: during a show, `ui.key` answers after the frame that handled the key.
+    #[test]
+    fn show_key_answers_after_the_frame_that_handled_it() {
+        use deckcraft_engine::Session;
+        let mut session = Session::with_new();
+        session.execute("slide.new", &json!({})).unwrap();
+        session.execute("slide.new", &json!({})).unwrap();
+        let app = SlideApp::new(session, crate::Services::default());
+        let mut harness = egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 700.0)).build_ui_state(
+            |ui, app: &mut SlideApp| {
+                app.logic(ui.ctx());
+                app.ui(ui);
+            },
+            app,
+        );
+        harness.run_steps(3);
+        harness.state_mut().start_show(0, false);
+        harness.run_steps(2);
+        let (req, rx) = ControlRequest::new("ui.key", json!({"key": "Right"}));
+        assert!(req.take());
+        let (tx, crx) = std::sync::mpsc::channel();
+        harness.state_mut().control_rx = Some(crx);
+        tx.send(req).unwrap();
+        let mut answer = None;
+        for _ in 0..8 {
+            // eframe calls the raw-input hook before each frame; the harness does not.
+            let mut raw = std::mem::take(harness.input_mut());
+            harness.state_mut().raw_input_hook(&mut raw);
+            *harness.input_mut() = raw;
+            harness.step();
+            if let Ok(v) = rx.try_recv() {
+                answer = Some(v);
+                break;
+            }
+        }
+        let v = answer.expect("the key is answered");
+        assert_eq!(v["result"]["showing"]["slide"], json!(1), "{v}");
     }
 
     /// MM3: `ui.pointer` answers what the drag moved (`moved` with `bounds`) or adjusted.
