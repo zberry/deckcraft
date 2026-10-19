@@ -53,7 +53,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Color At",
             [],
             None,
-            "{slide?: index, x, y (slide units), scale?: px per unit (2)} → {color: \"RRGGBB\", alpha: 0..255, x, y}: the colour drawn at a point of the slide (the Eyedropper)",
+            "{slide?: index, x, y (slide units), scale?: px per unit (2)} → {color: \"RRGGBB\", alpha: 0..255, x, y, highlight?: \"#RRGGBB\"}: the colour drawn at a point of the slide (the Eyedropper); when the point is on text with a highlight, `highlight` is that highlight's colour (the box the text sits on; `color` can be a letter's own pixel)",
             has_doc,
             color_at
         ),
@@ -600,7 +600,38 @@ fn color_at(s: &mut Session, p: &Value) -> Result<Value> {
     let inside = px >= 0.0 && py >= 0.0 && px < f64::from(img.width) && py < f64::from(img.height);
     let [r, g, b, a] =
         img.straight_at(px as u32, py as u32).filter(|_| inside).ok_or_else(|| bad("slide.colorAt", "the point is outside the slide"))?;
-    Ok(json!({"color": format!("{r:02X}{g:02X}{b:02X}"), "alpha": a, "x": x, "y": y}))
+    let mut out = json!({"color": format!("{r:02X}{g:02X}{b:02X}"), "alpha": a, "x": x, "y": y});
+    if let Some(h) = highlight_at(&st.doc, i, x, y)
+        && let Some(o) = out.as_object_mut()
+    {
+        o.insert("highlight".into(), json!(format!("#{}", h.hex())));
+    }
+    Ok(out)
+}
+
+/// The colour of the text highlight behind slide point `(x, y)`, from the topmost top-level shape
+/// whose laid-out text has a highlight box there.
+fn highlight_at(doc: &Presentation, i: usize, x: f64, y: f64) -> Option<deckcraft_color::Rgba> {
+    use deckcraft_model::resolve::{self, Ctx};
+    let sl = doc.slides.get(i)?;
+    let ctx = Ctx::for_slide(doc, sl)?;
+    sl.shapes.iter().rev().filter(|sh| sh.text.as_ref().is_some_and(|t| !t.is_empty())).find_map(|sh| {
+        let body = sh.text.as_ref()?;
+        let xf = resolve::xfrm(&ctx, sh);
+        let tr = deckcraft_render::shape_geometry(sh, xf.w, xf.h).text_rect;
+        let l = deckcraft_text::layout(
+            &ctx,
+            sh,
+            body,
+            &deckcraft_text::Opts { rect: tr, fields: &deckcraft_text::NoFields, prompt_color: None, no_shrink: false },
+        );
+        let t = deckcraft_render::text_transform(xf.affine(), tr, l.rotation);
+        if t.determinant().abs() < 1e-12 {
+            return None;
+        }
+        let p = t.inverse() * deckcraft_geom::Point::new(x, y);
+        l.decos.iter().find(|d| d.behind && d.rect.contains(p)).map(|d| d.color)
+    })
 }
 
 fn export(s: &mut Session, p: &Value) -> Result<Value> {

@@ -71,3 +71,20 @@ fn points_outside_the_slide_and_bad_parameters_are_errors() {
         assert!(v.is_ok(), "{scale}: {v:?}");
     }
 }
+
+/// OO3: a point on highlighted text answers the highlight colour, so a contrast check sees the
+/// box the text sits on; a point off the text has no `highlight`.
+#[test]
+fn a_point_on_highlighted_text_answers_the_highlight_colour() {
+    let mut s = Session::with_new();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let id = s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 200, 100]})).unwrap()["id"].clone();
+    s.execute("text.set", &json!({"id": id, "text": "Highlighted"})).unwrap();
+    s.execute("format.highlight", &json!({"color": "#FFFF00", "ids": [id]})).unwrap();
+    let on = color_at(&mut s, 112.0, 150.0);
+    assert_eq!(on["highlight"], "#FFFF00", "{on}");
+    let off = color_at(&mut s, 290.0, 110.0);
+    assert!(off.get("highlight").is_none(), "{off}");
+    let doc = command_specs().iter().find(|c| c.id == "slide.colorAt").unwrap().params;
+    assert!(doc.contains("highlight"), "{doc}");
+}
