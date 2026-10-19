@@ -35,6 +35,17 @@ fn handshake_and_tool_list() {
 }
 
 #[test]
+fn inspect_slide_takes_text_runs() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    let id = tool(&mut s, "inspect_slide", json!({}))["shapes"][0]["id"].as_u64().unwrap();
+    tool(&mut s, "set_text", json!({"id": id, "text": "Hello"}));
+    let sl = tool(&mut s, "inspect_slide", json!({"text": "runs"}));
+    let shapes = sl["shapes"].as_array().unwrap();
+    assert!(shapes.iter().any(|x| x["runs"].is_array()), "{sl}");
+}
+
+#[test]
 fn agent_builds_a_deck() {
     let mut s = Server::new(Box::new(Headless::new()));
     tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
