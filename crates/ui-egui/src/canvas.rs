@@ -961,6 +961,17 @@ fn overlays(app: &mut SlideApp, ui: &Ui, painter: &egui::Painter, xf: Xf, t: &To
                 let fill = if g { t.accent } else { t.handle_fill };
                 painter.circle(q, 4.5, fill, Stroke::new(1.0, if g { t.handle_fill } else { t.handle_stroke }));
             }
+            // A bent or curved connector's yellow handle(s).
+            if !sh.locked && matches!(sh.kind, deckcraft_model::ShapeKind::Connector { .. }) {
+                for hd in &deckcraft_render::shape_geometry(sh, x.w, x.h).handles {
+                    painter.circle(
+                        xf.to_screen(a * hd.pos),
+                        4.5,
+                        Color32::from_rgb(0xFF, 0xD2, 0x3F),
+                        Stroke::new(1.0, Color32::from_rgb(0x8A, 0x6A, 0x00)),
+                    );
+                }
+            }
             continue;
         }
         let editing_this = editing.as_ref().is_some_and(|e| e.shape == *id && !e.notes);

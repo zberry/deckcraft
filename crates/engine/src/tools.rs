@@ -403,6 +403,13 @@ impl Session {
                             return Some(Hit::LineEnd { id: *id, end });
                         }
                     }
+                    // A bent or curved connector's yellow handle bends it, ends still glued.
+                    if matches!(sh.kind, ShapeKind::Connector { .. }) {
+                        let geo = deckcraft_render::shape_geometry(sh, x.w, x.h);
+                        if let Some(hd) = geo.handles.iter().find(|hd| (a * hd.pos - p).hypot() <= tol * 1.6) {
+                            return Some(Hit::Adjust { id: *id, index: hd.index });
+                        }
+                    }
                     continue;
                 }
                 let geo = deckcraft_render::shape_geometry(sh, x.w, x.h);

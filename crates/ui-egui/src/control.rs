@@ -479,4 +479,36 @@ mod tests {
         assert_eq!(r["moved"], json!([id]), "{v}");
         assert_eq!(r["bounds"][id.to_string()], r["selected"][0]["rect"], "{v}");
     }
+
+    /// MM2: a selected bent connector has a yellow handle; dragging it bends the connector (an
+    /// `adjusted` answer) and leaves it glued, instead of moving it and detaching its ends.
+    #[test]
+    fn dragging_a_bent_connectors_handle_bends_it() {
+        use deckcraft_engine::Session;
+        let mut app = SlideApp::new(Session::with_new(), crate::Services::default());
+        let a = app.run("shape.insert", json!({"preset": "rect", "rect": [100, 100, 100, 60]})).unwrap()["id"].as_u64().unwrap();
+        let b = app.run("shape.insert", json!({"preset": "rect", "rect": [400, 300, 100, 60]})).unwrap()["id"].as_u64().unwrap();
+        let c = app.run("shape.connect", json!({"from": a, "to": b, "fromSite": 3, "toSite": 1, "preset": "bentConnector3"})).unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        app.run("edit.select", json!({"ids": [c]})).unwrap();
+        let (hx, hy) = {
+            let st = app.session.active().unwrap();
+            let sh = st.shape(deckcraft_model::ShapeId(c as u32)).unwrap();
+            let x = deckcraft_engine::cmd::xfrm_of(&st.doc, &st.selection, sh);
+            let hd = deckcraft_render::shape_geometry(sh, x.w, x.h).handles.into_iter().next().expect("a bent connector has an adjust handle");
+            let q = x.affine() * hd.pos;
+            (q.x, q.y)
+        };
+        let ctx = egui::Context::default();
+        let events = json!([{"kind": "down", "x": hx, "y": hy}, {"kind": "drag", "x": hx + 40.0, "y": hy}, {"kind": "up", "x": hx + 40.0, "y": hy}]);
+        let (req, _rx) = ControlRequest::new("ui.pointer", json!({"events": events}));
+        let Outcome::Done(v) = handle(&mut app, &ctx, &req) else { panic!("no answer") };
+        let r = &v["result"];
+        assert_eq!(r["adjusted"][0]["id"], json!(c), "{v}");
+        assert!(r.get("moved").is_none(), "a bend is not a move: {v}");
+        let st = app.session.active().unwrap();
+        let sh = st.shape(deckcraft_model::ShapeId(c as u32)).unwrap();
+        assert!(matches!(sh.kind, deckcraft_model::ShapeKind::Connector { start: Some(_), end: Some(_) }), "still glued");
+    }
 }
