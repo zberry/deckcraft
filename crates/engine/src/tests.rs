@@ -5888,7 +5888,7 @@ fn an_ids_entry_that_is_not_an_id_is_refused_naming_it() {
     }
     let e = s.execute("edit.select", &json!({"ids": [a, 1.5]})).unwrap_err().to_string();
     assert!(e.contains("1.5") && e.contains("not a shape id"), "{e}");
-    assert_eq!(s.doc().unwrap().selection.shapes.len(), 1, "a refused select keeps the selection");
+    assert!(s.doc().unwrap().selection.shapes.is_empty(), "a refused select leaves nothing selected (II2)");
     assert_eq!(s.execute("edit.select", &json!({"ids": [a]})).unwrap()["selected"], json!([a]));
 }
 
@@ -7116,4 +7116,33 @@ fn transition_apply_all_treats_kind_none_as_nothing_to_copy() {
     let r = s.execute("transition.applyAll", &json!({"clear": true})).unwrap();
     assert_eq!(r["kind"], "none", "{r}");
     assert!(s.doc().unwrap().doc.slides[1].transition.as_ref().is_none_or(|t| t.kind == "none"), "clear: true clears the wipe");
+}
+
+/// II2: a refused `edit.select` (ids on several slides, an unknown id, a bad entry) empties the
+/// shape selection, so the next command of a `batch {keepGoing: true}` refuses with "nothing
+/// selected" instead of editing the shapes selected before it.
+#[test]
+fn refused_edit_select_leaves_nothing_selected() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let a = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("edit.select", &json!({"ids": [b]})).unwrap();
+    let before = s.execute("shape.inspect", &json!({"id": b})).unwrap();
+    for ids in [json!([a, b]), json!([b, 9999]), json!([b, "x"])] {
+        s.execute("edit.select", &json!({"ids": [b]})).unwrap();
+        assert_eq!(s.doc().unwrap().selection.shapes.len(), 1);
+        let e = s.execute("edit.select", &json!({"ids": ids})).unwrap_err().to_string();
+        assert!(e.contains("the selection is now empty"), "{ids}: {e}");
+        assert!(s.doc().unwrap().selection.shapes.is_empty(), "{ids}: nothing stays selected after a refusal");
+        let e = s.execute("format.color", &json!({"color": "#FF0000"})).unwrap_err().to_string();
+        assert!(e.contains("not available"), "{ids}: {e}");
+        assert_eq!(s.execute("shape.inspect", &json!({"id": b})).unwrap(), before, "{ids}: B is unchanged");
+    }
+    // selection.select (the Selection pane) refuses the same way.
+    s.execute("edit.select", &json!({"ids": [b]})).unwrap();
+    let e = s.execute("selection.select", &json!({"ids": [9999]})).unwrap_err().to_string();
+    assert!(e.contains("the selection is now empty"), "{e}");
+    assert!(s.doc().unwrap().selection.shapes.is_empty());
 }

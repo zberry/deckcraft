@@ -703,6 +703,10 @@ fn selection(s: &mut Session, _p: &Value) -> Result<Value> {
 }
 
 fn select(s: &mut Session, p: &Value) -> Result<Value> {
+    select_checked(s, p).map_err(|e| super::refused_select(s, e))
+}
+
+fn select_checked(s: &mut Session, p: &Value) -> Result<Value> {
     let ids = match ids_param(p, "ids")? {
         Some(v) => v,
         None => id_param(p, "id", "edit.select")?.map(|i| vec![i]).unwrap_or_default(),

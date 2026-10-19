@@ -441,6 +441,23 @@ pub(crate) fn require_any(p: &Value, cmd: &str, keys: &[&str]) -> Result<()> {
 pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
+/// A refused selection command leaves nothing selected, and its message says so: the shapes
+/// selected before must not be what the next command of a `batch {keepGoing: true}` edits
+/// (format.* then refuses with "nothing selected" instead of recolouring the wrong shapes).
+pub(crate) fn refused_select(s: &mut Session, e: EngineError) -> EngineError {
+    let cleared = s
+        .select(|_, sel| {
+            sel.shapes.clear();
+            sel.text = None;
+            sel.cells = None;
+        })
+        .is_ok();
+    match e {
+        EngineError::BadParams { cmd, msg } if cleared => EngineError::BadParams { cmd, msg: format!("{msg} (the selection is now empty)") },
+        EngineError::Other(msg) if cleared => EngineError::Other(format!("{msg} (the selection is now empty)")),
+        e => e,
+    }
+}
 /// The message for an index past the end of a list of `what` (slides, animations): it names the
 /// valid indices, because they count from 0 while the editor counts from 1, and an agent that
 /// passed the editor's number learns the base from this answer instead of from the user.
