@@ -137,6 +137,30 @@ fn an_open_arrowheads_point_is_on_the_lines_end() {
 }
 
 #[test]
+fn a_large_arrowhead_on_a_two_point_line_covers_more_than_a_medium_one() {
+    let count = |size: &str| {
+        let mut sh = arrow_line("triangle", 2.0, RED);
+        if let Some(t) = sh.line.as_mut().and_then(|l| l.tail.as_mut()) {
+            t.w = size.into();
+            t.len = size.into();
+        }
+        let img = render(vec![sh]);
+        let mut n = 0;
+        for y in 60..140 {
+            for x in 240..320 {
+                // Off the 2 pt line itself, so only the head is counted.
+                if (y as i32 - 100).abs() > 2 && img.pixel(x, y)[1] < 128 {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    let (med, lg) = (count("med"), count("lg"));
+    assert!(lg > med * 2, "medium {med} px, large {lg} px");
+}
+
+#[test]
 fn arrowheads_are_sized_for_at_least_a_two_point_line() {
     let e = deckcraft_model::style::LineEnd { kind: "triangle".into(), w: "sm".into(), len: "lg".into() };
     assert_eq!(head_size(&e, 0.5), (4.0, 10.0));

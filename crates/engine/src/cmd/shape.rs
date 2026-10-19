@@ -105,7 +105,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Shape Outline",
             ["Shape Format", "Shape Styles"],
             None,
-            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow (at the start of the line), tail? (at the end), headSize?: sm|med|lg, tailSize?, reset?, ids?} → {changed, ids}; a group also formats its members",
+            "{color?, none?, width?: pt, dash?: solid|dot|dash|lgDash|dashDot|sysDot|sysDash, cap?: flat|round|square, join?: round|bevel|miter, compound?: single|double|thickThin|thinThick|triple, head?: none|triangle|stealth|diamond|oval|arrow (at the start of the line), tail? (at the end), headSize?: sm|med|lg (also small|medium|large or s|m|l; an arrowhead is 2x, 3x or 5x the line width, never less than for a 2 pt line, so a wider line makes a bigger head), tailSize?, reset?, ids?} → {changed, ids}; a group also formats its members",
             has_selection,
             line
         ),
@@ -749,7 +749,16 @@ fn line(s: &mut Session, p: &Value) -> Result<Value> {
         "triple" => deckcraft_model::style::Compound::Triple,
         _ => deckcraft_model::style::Compound::Single,
     });
-    let end_size = |k: &str| str_param(p, k).filter(|v| matches!(*v, "sm" | "med" | "lg")).map(str::to_string);
+    let end_size = |k: &str| {
+        str_param(p, k)
+            .and_then(|v| match v {
+                "sm" | "s" | "small" => Some("sm"),
+                "med" | "m" | "medium" => Some("med"),
+                "lg" | "l" | "large" => Some("lg"),
+                _ => None,
+            })
+            .map(str::to_string)
+    };
     let (head_size, tail_size) = (end_size("headSize"), end_size("tailSize"));
     let join = str_param(p, "join").map(|c| match c {
         "bevel" => deckcraft_model::style::LineJoin::Bevel,

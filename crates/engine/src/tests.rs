@@ -1952,6 +1952,12 @@ fn shape_line_sets_compound_and_arrow_sizes() {
     let l = line(&s);
     assert_eq!(l.tail.as_ref().map(|e| (e.kind.as_str(), e.w.as_str())), Some(("stealth", "lg")));
     assert_eq!(l.head.as_ref().map(|e| e.w.as_str()), Some("med"));
+    // Long spellings and one-letter sizes are accepted (an agent sent "l" and saw no change).
+    s.execute("shape.line", &json!({"tail": "triangle", "tailSize": "sm"})).unwrap();
+    s.execute("shape.line", &json!({"tailSize": "l"})).unwrap();
+    assert_eq!(line(&s).tail.as_ref().map(|e| (e.w.clone(), e.len.clone())), Some(("lg".into(), "lg".into())));
+    s.execute("shape.line", &json!({"tailSize": "medium"})).unwrap();
+    assert_eq!(line(&s).tail.as_ref().map(|e| e.w.clone()), Some("med".into()));
     s.execute("shape.line", &json!({"head": "none", "compound": "single"})).unwrap();
     let l = line(&s);
     assert!(l.head.is_none());
