@@ -7837,3 +7837,32 @@ fn slide_inspect_table_has_columns_row_heights_and_borders() {
     let doc = command_specs().iter().find(|c| c.id == "slide.inspect").unwrap().params;
     assert!(doc.contains("columns") && doc.contains("rowHeights") && doc.contains("borders"), "{doc}");
 }
+
+#[test]
+fn slide_inspect_answers_flipped_group_children_where_drawn() {
+    let mut s = session();
+    let mut rect = |x: i32| s.execute("shape.insert", &json!({"preset": "rect", "rect": [x, 10, 100, 50]})).unwrap()["id"].clone();
+    let (a, b, c) = (rect(10), rect(200), rect(400));
+    let boxes = |s: &mut Session| {
+        let r = s.execute("slide.inspect", &json!({})).unwrap();
+        r["shapes"].as_array().unwrap().iter().find(|x| x["kind"] == "group").unwrap().clone()
+    };
+    let inner = s.execute("arrange.group", &json!({"ids": [a, b]})).unwrap()["id"].clone();
+    let g = boxes(&mut s);
+    assert_eq!(g["children"][0]["box"], json!([10.0, 10.0, 100.0, 50.0]), "{g}");
+    assert_eq!(g["children"][1]["box"], json!([200.0, 10.0, 100.0, 50.0]), "{g}");
+    s.execute("arrange.flipHorizontal", &json!({"ids": [inner]})).unwrap();
+    let g = boxes(&mut s);
+    assert_eq!(g["children"][0]["box"], json!([200.0, 10.0, 100.0, 50.0]), "{g}");
+    assert_eq!(g["children"][1]["box"], json!([10.0, 10.0, 100.0, 50.0]), "{g}");
+    // Nested: an unflipped outer group around the flipped one, then flip the outer too.
+    s.execute("arrange.flipHorizontal", &json!({"ids": [inner]})).unwrap();
+    let outer = s.execute("arrange.group", &json!({"ids": [inner, c]})).unwrap()["id"].clone();
+    s.execute("arrange.flipHorizontal", &json!({"ids": [outer]})).unwrap();
+    let g = boxes(&mut s);
+    let kids = g["children"].as_array().unwrap();
+    assert_eq!(kids[0]["box"], json!([210.0, 10.0, 290.0, 50.0]), "{g}");
+    assert_eq!(kids[0]["children"][0]["box"], json!([400.0, 10.0, 100.0, 50.0]), "{g}");
+    assert_eq!(kids[0]["children"][1]["box"], json!([210.0, 10.0, 100.0, 50.0]), "{g}");
+    assert_eq!(kids[1]["box"], json!([10.0, 10.0, 100.0, 50.0]), "{g}");
+}

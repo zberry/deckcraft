@@ -175,8 +175,18 @@ pub fn shape_summary(ctx: Option<&Ctx>, sh: &Shape, depth: usize) -> Value {
             ShapeKind::Chart(c) => {
                 o.insert("chart".into(), json!({"type": c.kind.label(), "title": c.title, "categories": c.categories, "series": c.series.iter().map(|s| json!({"name": s.name, "values": s.values})).collect::<Vec<_>>()}));
             }
-            ShapeKind::Group { children, .. } if depth < 8 => {
-                o.insert("children".into(), Value::Array(children.iter().map(|c| shape_summary(ctx, c, depth + 1)).collect()));
+            ShapeKind::Group { children, child } if depth < 8 => {
+                // Children answer where they are drawn: the group's scale, flips and rotation applied
+                // to their stored (child-space) boxes, nested groups included.
+                let group = x;
+                let drawn = |c: &Shape| {
+                    let mut c = c.clone();
+                    if let Some(cx) = c.xfrm {
+                        c.xfrm = Some(crate::cmd::arrange::child_to_parent(&group, child, &cx));
+                    }
+                    shape_summary(ctx, &c, depth + 1)
+                };
+                o.insert("children".into(), Value::Array(children.iter().map(drawn).collect()));
             }
             ShapeKind::Media(m) => {
                 o.insert("media".into(), json!({"id": m.media, "video": m.video, "autoplay": m.autoplay, "loop": m.loop_play}));
