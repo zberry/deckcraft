@@ -73,7 +73,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "list_commands",
             "List commands",
-            "Every command (id, label, ribbon/menu place, shortcut, parameter summary, whether it is enabled now, what it acts on). Filter by a substring of id or label; brief answers only id and params. Families: slide., section., shape., text., format., insert., table., animation., transition., design., arrange., edit., file.",
+            "Every command (id, label, ribbon/menu place, shortcut, parameter summary, whether it is enabled now, what it acts on). An unfiltered call lists every command and is about 115 KB (`brief: true` halves it to about 55 KB by answering only id and params); `filter` narrows it to a family (`shape.`) or any substring of the id or label. One unfiltered call is cheaper than many filtered ones. Families: slide., section., shape., text., format., insert., table., animation., transition., design., arrange., edit., file.",
             obj(
                 json!({"filter": string("Substring of the id or label, e.g. `format.` or `slide`"), "brief": boolean("Only id and params (default false)")}),
                 &[],

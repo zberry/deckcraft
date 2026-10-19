@@ -761,3 +761,15 @@ fn pointer_description_covers_dragging_connectors() {
     let d = t["description"].as_str().unwrap();
     assert!(d.contains("connector") && d.contains("detaches") && d.contains("yellow handle") && d.contains("bends"), "{d}");
 }
+
+/// LL5: list_commands says what an unfiltered call costs and how `filter` narrows it, so an agent
+/// makes one call rather than many filtered ones.
+#[test]
+fn list_commands_description_gives_its_size_and_filter() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    let tools = call(&mut s, 1, "tools/list", json!({}));
+    let t = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "list_commands").unwrap();
+    let d = t["description"].as_str().unwrap();
+    assert!(d.contains("about 115 KB") && d.contains("about 55 KB") && d.contains("every command"), "{d}");
+    assert!(d.contains("`filter`") && d.contains("`shape.`") && d.contains("substring") && d.contains("cheaper"), "{d}");
+}
