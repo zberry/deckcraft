@@ -7098,3 +7098,22 @@ fn animation_painter_doc_and_refusal_name_sticky() {
     let e = s.execute("animation.painterApply", &json!({"ids": [c]})).unwrap_err().to_string();
     assert!(e.contains("animation.painter {sticky: true} keeps them for several applies"), "{e}");
 }
+
+/// II1: `transition.applyAll` from a slide whose transition record is kind `none` (set by
+/// `transition.set {kind: "none"}` with a timing or sound) has nothing to copy, like a slide
+/// without a record: refused unless `clear: true`, and the other slides keep their transitions.
+#[test]
+fn transition_apply_all_treats_kind_none_as_nothing_to_copy() {
+    let mut s = session();
+    s.execute("transition.timing", &json!({"after": 5000})).unwrap();
+    assert!(s.doc().unwrap().doc.slides[0].transition.as_ref().is_some_and(|t| t.kind == "none"), "a `none` record exists");
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("transition.set", &json!({"kind": "wipe"})).unwrap();
+    s.execute("slide.go", &json!({"index": 0})).unwrap();
+    let e = s.execute("transition.applyAll", &json!({})).unwrap_err().to_string();
+    assert!(e.contains("slide index 0 has no transition to copy") && e.contains("clear: true"), "{e}");
+    assert!(s.doc().unwrap().doc.slides[1].transition.as_ref().is_some_and(|t| t.kind == "wipe"), "slide 1 keeps its wipe");
+    let r = s.execute("transition.applyAll", &json!({"clear": true})).unwrap();
+    assert_eq!(r["kind"], "none", "{r}");
+    assert!(s.doc().unwrap().doc.slides[1].transition.as_ref().is_none_or(|t| t.kind == "none"), "clear: true clears the wipe");
+}

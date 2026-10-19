@@ -213,7 +213,9 @@ fn apply_all(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.doc()?;
     let source = st.selection.slide;
     let t = st.doc.slides.get(source).and_then(|x| x.transition.clone());
-    if t.is_none() && !clear {
+    // A record of kind `none` (a timing or sound without an effect) is as much "no transition"
+    // as a missing record: copying it would silently clear every other slide's effect.
+    if t.as_ref().is_none_or(|t| t.kind == "none") && !clear {
         return Err(bad(
             "transition.applyAll",
             format!("slide index {source} has no transition to copy; go to the slide whose transition you want, or pass clear: true"),
