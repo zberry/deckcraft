@@ -4724,3 +4724,28 @@ fn slide_hide_and_layout_reject_invalid_index() {
     }
     assert!(s.doc().unwrap().doc.slides.iter().all(|x| !x.hidden));
 }
+
+/// A scratch folder for the frame-sequence export tests, empty.
+fn frames_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("deckcraft-frames-{}-{name}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    dir
+}
+
+/// Two slides: slide 0 holds a rectangle that fades in on click (500 ms), slide 1 is blank and
+/// comes in with a 700 ms fade. Returns the session and the rectangle's id.
+fn frames_deck() -> (Session, u64) {
+    let mut s = session();
+    let id = s.execute("shape.insert", &json!({"preset": "rect", "rect": [100, 100, 300, 200]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("shape.fill", &json!({"ids": [id], "color": "#2040E0"})).unwrap();
+    s.execute("animation.add", &json!({"ids": [id], "effect": "fade", "class": "entrance", "start": "onClick", "duration": 500})).unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("transition.set", &json!({"kind": "fade", "duration": 700, "index": 1})).unwrap();
+    (s, id)
+}
+
+fn png_files(dir: &std::path::Path) -> Vec<String> {
+    let mut v: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().to_string()).collect();
+    v.sort();
+    v
+}
