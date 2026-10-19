@@ -309,6 +309,43 @@ impl DocState {
     }
 }
 
+impl DocState {
+    /// What changed on the current slide since `before` (a clone of `doc` taken earlier), for a
+    /// gesture's answer: `moved: [ids]` with `bounds: {id: [x, y, w, h]}` for shapes whose box
+    /// changed, and `adjusted: [{id, adjust}]` for shapes whose adjust handles changed (a rounded
+    /// corner, a bent connector's elbow). Only the keys that apply are present.
+    pub fn changes_since(&self, before: &Presentation) -> Value {
+        let mut out = serde_json::Map::new();
+        let (Some(old), Some(new)) = (before.slides.get(self.selection.slide), self.doc.slides.get(self.selection.slide)) else {
+            return Value::Object(out);
+        };
+        if Arc::ptr_eq(old, new) {
+            return Value::Object(out);
+        }
+        let (mut moved, mut bounds, mut adjusted) = (vec![], serde_json::Map::new(), vec![]);
+        for sh in &new.shapes {
+            let Some(was) = old.shapes.iter().find(|x| x.id == sh.id) else { continue };
+            if was.xfrm != sh.xfrm {
+                moved.push(json!(sh.id));
+                bounds.insert(sh.id.0.to_string(), cmd::rect_json(&cmd::xfrm_of(&self.doc, &self.selection, sh)));
+            }
+            if let (deckcraft_model::Geom::Preset { adj: a0, .. }, deckcraft_model::Geom::Preset { adj: a1, .. }) = (&was.geom, &sh.geom)
+                && a0 != a1
+            {
+                adjusted.push(json!({"id": sh.id, "adjust": a1}));
+            }
+        }
+        if !moved.is_empty() {
+            out.insert("moved".into(), Value::Array(moved));
+            out.insert("bounds".into(), Value::Object(bounds));
+        }
+        if !adjusted.is_empty() {
+            out.insert("adjusted".into(), Value::Array(adjusted));
+        }
+        Value::Object(out)
+    }
+}
+
 /// The page being edited: the slide size, or the notes size in Handout Master view.
 pub fn page_size(st: &DocState) -> deckcraft_geom::Size {
     if st.selection.target.is_page_master() { st.doc.notes_size } else { st.doc.slide_size }

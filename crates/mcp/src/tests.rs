@@ -773,3 +773,38 @@ fn list_commands_description_gives_its_size_and_filter() {
     assert!(d.contains("about 115 KB") && d.contains("about 55 KB") && d.contains("every command"), "{d}");
     assert!(d.contains("`filter`") && d.contains("`shape.`") && d.contains("substring") && d.contains("cheaper"), "{d}");
 }
+
+/// MM3: `pointer` says what the drag did: `moved` ids with their new `bounds`, or `adjusted` when an
+/// adjust handle was dragged, so an agent can tell a move from a bend.
+#[test]
+fn pointer_answers_what_the_drag_moved_or_adjusted() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    tool(&mut s, "add_slide", json!({"layout": "blank"}));
+    let a = tool(&mut s, "run_command", json!({"command": "shape.insert", "params": {"preset": "rect", "rect": [100, 100, 200, 100]}}))["id"]
+        .as_u64()
+        .unwrap();
+    let r = tool(
+        &mut s,
+        "pointer",
+        json!({"events": [{"kind": "down", "x": 200, "y": 150}, {"kind": "drag", "x": 230, "y": 170}, {"kind": "up", "x": 230, "y": 170}]}),
+    );
+    assert_eq!(r["moved"], json!([a]), "{r}");
+    assert_eq!(r["bounds"][a.to_string()], r["selected"][0]["rect"], "{r}");
+    assert!(r["bounds"][a.to_string()][0].as_f64().is_some_and(|x| x > 100.0), "{r}");
+    assert!(r.get("adjusted").is_none(), "{r}");
+    // A rounded corner's handle sits on the top edge, one corner radius in from the left.
+    let b = tool(&mut s, "run_command", json!({"command": "shape.insert", "params": {"preset": "roundRect", "rect": [400, 100, 300, 200]}}))["id"]
+        .as_u64()
+        .unwrap();
+    tool(&mut s, "run_command", json!({"command": "edit.select", "params": {"ids": [b]}}));
+    let hx = 400.0 + 200.0 * 0.16667;
+    let r = tool(
+        &mut s,
+        "pointer",
+        json!({"events": [{"kind": "down", "x": hx, "y": 100}, {"kind": "drag", "x": hx + 30.0, "y": 100}, {"kind": "up", "x": hx + 30.0, "y": 100}]}),
+    );
+    assert_eq!(r["adjusted"][0]["id"], json!(b), "{r}");
+    assert!(r["adjusted"][0]["adjust"].is_array(), "{r}");
+    assert!(r.get("moved").is_none(), "a bend is not a move: {r}");
+}

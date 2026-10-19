@@ -7354,3 +7354,21 @@ fn inspect_names_what_a_zoom_points_at() {
     assert_eq!(zooms[1]["zoom"]["returnToZoom"], true, "{r}");
     assert!(zooms[1]["zoom"]["section"].is_string(), "{r}");
 }
+
+/// MM3: shape.connect answers `path`, the connector's drawn polyline, so an agent sees its elbows.
+#[test]
+fn shape_connect_answers_the_rendered_path() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let ins = |s: &mut Session, p: serde_json::Value| s.execute("shape.insert", &p).unwrap()["id"].as_u64().unwrap();
+    let a = ins(&mut s, json!({"preset": "rect", "rect": [100, 100, 100, 60]}));
+    let b = ins(&mut s, json!({"preset": "rect", "rect": [400, 300, 100, 60]}));
+    let r = s.execute("shape.connect", &json!({"from": a, "to": b, "fromSite": 3, "toSite": 0, "preset": "bentConnector3"})).unwrap();
+    let path = r["path"].as_array().unwrap_or_else(|| panic!("{r}"));
+    assert!(path.len() >= 4, "an elbow connector turns twice: {r}");
+    let pt = |i: usize| (path[i][0].as_f64().unwrap(), path[i][1].as_f64().unwrap());
+    assert_eq!(pt(0), (200.0, 130.0), "starts at the right site of the first box: {r}");
+    assert_eq!(pt(path.len() - 1), (450.0, 300.0), "ends at the top site of the second: {r}");
+    let r = s.execute("shape.connect", &json!({"from": a, "to": b})).unwrap();
+    assert_eq!(r["path"].as_array().map(Vec::len), Some(2), "a straight connector is one segment: {r}");
+}

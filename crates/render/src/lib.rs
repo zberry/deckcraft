@@ -564,6 +564,34 @@ pub fn shape_geometry(shape: &Shape, w: f64, h: f64) -> Geometry {
     }
 }
 
+/// The outline of `shape` drawn in `xfrm`, as slide-space polylines (curves flattened to 0.25 pt):
+/// one per sub-path of its geometry, from the same geometry the renderer strokes. A connector has
+/// one: `[[x, y], …]` from its start to its end through every elbow.
+pub fn shape_polylines(shape: &Shape, xfrm: &deckcraft_geom::Xfrm) -> Vec<Vec<[f64; 2]>> {
+    let (w, h) = (xfrm.w.abs(), xfrm.h.abs());
+    let a = xfrm.affine();
+    let mut out = vec![];
+    for sp in shape_geometry(shape, w, h).paths {
+        if !sp.stroke {
+            continue;
+        }
+        let mut line: Vec<[f64; 2]> = vec![];
+        kurbo::flatten(sp.path.elements().iter().copied(), 0.25, |el| match el {
+            kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p) => {
+                let q = a * p;
+                if line.last() != Some(&[q.x, q.y]) {
+                    line.push([q.x, q.y]);
+                }
+            }
+            _ => {}
+        });
+        if line.len() >= 2 {
+            out.push(line);
+        }
+    }
+    out
+}
+
 /// Parse our custom path syntax (`M x y L x y C … Q … Z`).
 pub fn parse_path(d: &str) -> BezPath {
     let mut bp = BezPath::new();

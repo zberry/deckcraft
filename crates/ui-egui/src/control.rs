@@ -148,6 +148,7 @@ pub fn handle(app: &mut SlideApp, ctx: &egui::Context, req: &ControlRequest) -> 
             let Some(events) = p.get("events").and_then(Value::as_array) else { return err("missing `events`") };
             let base = p.get("mods").map(mods_from).unwrap_or_default();
             let mut last = Value::Null;
+            let before = app.session.active().map(|d| d.doc.clone());
             for e in events {
                 let kind = e.get("kind").and_then(Value::as_str).unwrap_or("");
                 let Some(kind) = deckcraft_mcp_kind(kind) else { return err(format!("unknown pointer kind `{kind}`")) };
@@ -162,11 +163,18 @@ pub fn handle(app: &mut SlideApp, ctx: &egui::Context, req: &ControlRequest) -> 
                 }
             }
             let st = app.session.active();
-            ok(json!({
+            let mut answer = json!({
                 "result": last,
                 "selection": st.map(|d| serde_json::to_value(&d.selection).unwrap_or_default()),
                 "selected": st.map(deckcraft_engine::DocState::selected_boxes).unwrap_or_default(),
-            }))
+            });
+            // What the gesture did: moved ids with their bounds, or adjusted handles (a bend).
+            if let (Some(st), Some(before), Some(o)) = (st, before, answer.as_object_mut())
+                && let Some(ch) = st.changes_since(&before).as_object()
+            {
+                o.extend(ch.clone());
+            }
+            ok(answer)
         }
         "ui.key" => {
             let Some(k) = s("key") else { return err("missing `key`") };
@@ -455,5 +463,20 @@ mod tests {
         assert!(ControlRequest::abandon(&req.state), "a pending request is abandoned");
         assert!(!req.take(), "an abandoned request is never taken");
         assert!(ControlRequest::abandon(&req.state), "abandoning twice stays abandoned");
+    }
+
+    /// MM3: `ui.pointer` answers what the drag moved (`moved` with `bounds`) or adjusted.
+    #[test]
+    fn pointer_answers_what_it_moved() {
+        use deckcraft_engine::Session;
+        let mut app = SlideApp::new(Session::with_new(), crate::Services::default());
+        let id = app.run("shape.insert", json!({"preset": "rect", "rect": [100, 100, 200, 100]})).unwrap()["id"].as_u64().unwrap();
+        let ctx = egui::Context::default();
+        let events = json!([{"kind": "down", "x": 200, "y": 150}, {"kind": "drag", "x": 240, "y": 180}, {"kind": "up", "x": 240, "y": 180}]);
+        let (req, _rx) = ControlRequest::new("ui.pointer", json!({"events": events}));
+        let Outcome::Done(v) = handle(&mut app, &ctx, &req) else { panic!("no answer") };
+        let r = &v["result"];
+        assert_eq!(r["moved"], json!([id]), "{v}");
+        assert_eq!(r["bounds"][id.to_string()], r["selected"][0]["rect"], "{v}");
     }
 }

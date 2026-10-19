@@ -18,7 +18,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Connect Shapes",
             [],
             None,
-            "{from: shape id, to: shape id (both on the current slide), fromSite?, toSite?: site index (default: the sites facing each other along the dominant direction between the shapes; a box has 0 top, 1 left, 2 bottom, 3 right; shape.sites lists them), id?: existing line to glue (else a new connector), preset?: straightConnector1|bentConnector3|curvedConnector3 (with id: changes the connector's kind as it is re-glued)} → {id, fromSite, toSite}",
+            "{from: shape id, to: shape id (both on the current slide), fromSite?, toSite?: site index (default: the sites facing each other along the dominant direction between the shapes; a box has 0 top, 1 left, 2 bottom, 3 right; shape.sites lists them), id?: existing line to glue (else a new connector), preset?: straightConnector1|bentConnector3|curvedConnector3 (with id: changes the connector's kind as it is re-glued)} → {id, fromSite, toSite, path: [[x, y], …] (the connector as drawn, start to end through its elbows, slide pt)}",
             has_slide,
             connect
         ),
@@ -1338,7 +1338,17 @@ fn connect(s: &mut Session, p: &Value) -> Result<Value> {
         sh.kind = deckcraft_model::ShapeKind::Connector { start: Some((from, ia as u32)), end: Some((to, ib as u32)) };
         Ok(())
     })?;
-    Ok(json!({"id": id.0, "fromSite": ia, "toSite": ib}))
+    // The drawn polyline, from the geometry the renderer strokes: its elbows and where it ends.
+    let path = {
+        let st = s.doc()?;
+        st.shape(id).map(|sh| {
+            let x = xfrm_of(&st.doc, &st.selection, sh);
+            deckcraft_render::shape_polylines(sh, &x).into_iter().next().unwrap_or_default()
+        })
+    };
+    let round = |v: f64| (v * 100.0).round() / 100.0;
+    let path: Vec<Value> = path.unwrap_or_default().iter().map(|q| json!([round(q[0]), round(q[1])])).collect();
+    Ok(json!({"id": id.0, "fromSite": ia, "toSite": ib, "path": path}))
 }
 
 /// Path data through `pts` (shape-local): straight segments, or a Catmull-Rom curve as cubics.

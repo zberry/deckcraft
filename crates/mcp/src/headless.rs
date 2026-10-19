@@ -94,6 +94,7 @@ impl Headless {
             return Err("no presentation open (use new_presentation first)".into());
         }
         let mut last = Value::Null;
+        let before = self.session.active().map(|d| d.doc.clone());
         for e in events {
             let kind = s(e, "kind").unwrap_or("");
             let kind = pointer_kind(kind)
@@ -106,11 +107,17 @@ impl Headless {
         }
         self.session.ui_requests.clear();
         let st = self.session.active();
-        Ok(json!({
+        let mut answer = json!({
             "result": last,
             "selection": st.map(|d| serde_json::to_value(&d.selection).unwrap_or_default()),
             "selected": st.map(deckcraft_engine::DocState::selected_boxes).unwrap_or_default(),
-        }))
+        });
+        if let (Some(st), Some(before), Some(o)) = (st, before, answer.as_object_mut())
+            && let Some(ch) = st.changes_since(&before).as_object()
+        {
+            o.extend(ch.clone());
+        }
+        Ok(answer)
     }
 
     fn render(&mut self, p: &Value) -> Result<Value, String> {
