@@ -6816,10 +6816,10 @@ fn action_button_fill_follows_the_theme() {
         r["shapes"].as_array().unwrap().iter().find(|x| x["id"] == id).unwrap()["fill"].clone()
     };
     let before = fill(&mut s);
-    assert!(before.as_str().is_some_and(|f| f.starts_with('#')), "{before}");
+    assert_eq!(before, "accent1", "the fill is the theme slot, not a colour");
     s.execute("design.theme", &json!({"name": "Ember"})).unwrap();
     let after = fill(&mut s);
-    assert_ne!(before, after, "the button takes the new theme's accent1");
+    assert_eq!(after, "accent1", "the button keeps following the theme's accent1");
     let st = s.doc().unwrap();
     let sh = st.doc.slides[0].shapes.iter().find(|x| x.fill.is_none() && x.style.is_some()).unwrap();
     assert!(sh.fill.is_none(), "no explicit fill: the style binds it to accent1");
@@ -7620,4 +7620,41 @@ fn copy_color_and_cell_align_answer_what_they_did() {
     let r = s.execute("table.cellAlign", &json!({"id": t.0, "anchor": "middle"})).unwrap();
     assert_eq!(r["id"], json!(t.0));
     assert!(r["cells"].as_u64().unwrap() >= 1, "{r}");
+}
+
+#[test]
+fn slide_inspect_answers_a_tinted_scheme_colour_as_scheme_and_lum() {
+    let mut s = session();
+    let a = s
+        .execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50], "text": "A", "color": "#FF0000", "line": "accent2"}))
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    s.execute("format.color", &json!({"ids": [a], "color": {"scheme": "accent1", "lumMod": 40000, "lumOff": 60000}})).unwrap();
+    let v = s.execute("slide.inspect", &json!({})).unwrap();
+    let sa = v["shapes"].as_array().unwrap().iter().find(|x| x["id"] == a).cloned().unwrap();
+    assert_eq!(sa["textColor"], json!({"scheme": "accent1", "lumMod": 40000, "lumOff": 60000}), "{sa}");
+    s.execute("format.color", &json!({"ids": [a], "color": {"scheme": "accent1", "lumMod": 75000}})).unwrap();
+    let v = s.execute("slide.inspect", &json!({})).unwrap();
+    let sa = v["shapes"].as_array().unwrap().iter().find(|x| x["id"] == a).cloned().unwrap();
+    assert_eq!(sa["textColor"], json!({"scheme": "accent1", "lumMod": 75000}), "{sa}");
+    s.execute("format.color", &json!({"ids": [a], "color": "accent1"})).unwrap();
+    let v = s.execute("slide.inspect", &json!({})).unwrap();
+    let sa = v["shapes"].as_array().unwrap().iter().find(|x| x["id"] == a).cloned().unwrap();
+    assert_eq!(sa["textColor"], "accent1", "{sa}");
+    s.execute("format.color", &json!({"ids": [a], "color": "#00FF00"})).unwrap();
+    let v = s.execute("slide.inspect", &json!({})).unwrap();
+    let sa = v["shapes"].as_array().unwrap().iter().find(|x| x["id"] == a).cloned().unwrap();
+    assert_eq!(sa["textColor"], "#00FF00", "{sa}"); // Fills answer the same way: a theme-bound tint is not a hard-coded colour.
+    let fill = |s: &mut Session| {
+        let v = s.execute("slide.inspect", &json!({})).unwrap();
+        v["shapes"].as_array().unwrap().iter().find(|x| x["id"] == a).unwrap()["fill"].clone()
+    };
+    assert_eq!(fill(&mut s), "accent1", "the style's accent1, still theme-bound");
+    s.execute("shape.fill", &json!({"ids": [a], "color": "#123456"})).unwrap();
+    assert_eq!(fill(&mut s), "#123456");
+    s.execute("shape.fill", &json!({"ids": [a], "color": {"scheme": "accent1", "lumMod": 40000, "lumOff": 60000}})).unwrap();
+    assert_eq!(fill(&mut s), json!({"scheme": "accent1", "lumMod": 40000, "lumOff": 60000}));
+    s.execute("shape.fill", &json!({"ids": [a], "color": "accent3"})).unwrap();
+    assert_eq!(fill(&mut s), "accent3");
 }

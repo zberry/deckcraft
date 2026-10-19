@@ -10,7 +10,7 @@ use crate::{Result, Session};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; sections; customShows: [{name, slides: 0-based slide indices in show order}]; selection; size; theme", has_doc, document),
-        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
+        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fill and when present textColor (both: a scheme colour as its slot name, or {scheme, lumMod?, lumOff?} when tinted, else hex; a fill may also be \"none\" or a gradient/picture/pattern kind), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
@@ -89,7 +89,13 @@ pub fn shape_summary(ctx: Option<&Ctx>, sh: &Shape, depth: usize) -> Value {
     let fill = ctx.map(|c| {
         let (f, ph) = resolve::fill(c, sh);
         match f {
-            Some(deckcraft_model::Fill::Solid { color }) => json!(format!("#{}", c.color(&color, ph).hex())),
+            Some(deckcraft_model::Fill::Solid { color }) => match (&color.base, &sh.style) {
+                // A theme fill that is just the style's colour: that colour, still theme-bound.
+                (deckcraft_model::ColorBase::Scheme { slot: deckcraft_color::SchemeSlot::PhClr }, Some(st)) if color.mods.is_empty() => {
+                    color_json(c, &st.fill_ref.1, None)
+                }
+                _ => color_json(c, &color, ph),
+            },
             Some(deckcraft_model::Fill::None) | None => json!("none"),
             Some(other) => json!(serde_json::to_value(&other).ok().and_then(|v| v.get("kind").cloned()).unwrap_or_default()),
         }
@@ -201,12 +207,30 @@ fn round(v: f64) -> f64 {
 }
 
 /// A colour as an agent reads it: the theme slot's name for an unmodified scheme colour (so a
-/// theme change is seen as such), else the resolved `#RRGGBB`.
+/// theme change is seen as such), `{scheme, lumMod?, lumOff?}` for a scheme colour tinted or shaded
+/// by luminance (thousandths of a percent, as `shape.fill` takes them), else the resolved `#RRGGBB`.
 fn color_json(c: &Ctx, color: &deckcraft_model::ColorRef, ph: Option<deckcraft_color::Rgba>) -> Value {
-    match &color.base {
-        deckcraft_model::ColorBase::Scheme { slot } if color.mods.is_empty() => json!(slot.xml_name()),
-        _ => json!(format!("#{}", c.color(color, ph).hex())),
+    use deckcraft_color::ColorTransform as T;
+    if let deckcraft_model::ColorBase::Scheme { slot } = &color.base
+        && *slot != deckcraft_color::SchemeSlot::PhClr
+    {
+        if color.mods.is_empty() {
+            return json!(slot.xml_name());
+        }
+        if color.mods.iter().all(|m| matches!(m, T::LumMod(_) | T::LumOff(_))) {
+            let mut o = serde_json::Map::new();
+            o.insert("scheme".into(), json!(slot.xml_name()));
+            for m in &color.mods {
+                match m {
+                    T::LumMod(v) => o.insert("lumMod".into(), json!(v)),
+                    T::LumOff(v) => o.insert("lumOff".into(), json!(v)),
+                    _ => None,
+                };
+            }
+            return Value::Object(o);
+        }
     }
+    json!(format!("#{}", c.color(color, ph).hex()))
 }
 
 /// The resolved colour of the shape's first text run, when it has text.
