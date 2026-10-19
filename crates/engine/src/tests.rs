@@ -7045,3 +7045,38 @@ fn show_start_answers_where_the_show_starts() {
     assert_eq!(v["from"], 2, "the old field stays");
     assert!(find_command("show.fromStart").unwrap().params.contains("slide"));
 }
+
+/// JJ4: draw.stroke is a headless ink stroke (red pen by default, as PowerPoint's first pen), and
+/// draw.inkToShape turns a recognisable one into a shape.
+#[test]
+fn draw_stroke_makes_red_ink_and_ink_to_shape_converts_it() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let square: Vec<serde_json::Value> = (0..=40)
+        .map(|i| {
+            let (u, side) = ((i % 10) as f64 * 20.0, i / 10);
+            match side {
+                0 => json!([100.0 + u, 100.0]),
+                1 => json!([300.0, 100.0 + u]),
+                2 => json!([300.0 - u, 300.0]),
+                _ => json!([100.0, 300.0 - u]),
+            }
+        })
+        .collect();
+    let r = s.execute("draw.stroke", &json!({"points": square})).unwrap();
+    assert!(r["ink"].as_u64().is_some(), "{r}");
+    let strokes =
+        |s: &Session| match &s.doc().unwrap().shapes().iter().find(|x| matches!(x.kind, deckcraft_model::ShapeKind::Ink { .. })).unwrap().kind {
+            deckcraft_model::ShapeKind::Ink { strokes } => strokes.clone(),
+            _ => vec![],
+        };
+    let st = strokes(&s);
+    assert_eq!((st[0].color, st[0].width), (deckcraft_model::Rgba::rgb(0xFF, 0, 0), 2.0));
+    s.execute("draw.stroke", &json!({"points": [[0.0, 0.0], [50.0, 50.0]], "color": "#0000FF", "width": 5.0})).unwrap();
+    let st = strokes(&s);
+    assert_eq!((st[1].color, st[1].width), (deckcraft_model::Rgba::rgb(0, 0, 0xFF), 5.0));
+    assert!(s.execute("draw.stroke", &json!({"points": [[0.0, 0.0]]})).is_err());
+    assert!(s.execute("draw.stroke", &json!({"points": [[0.0, 0.0], [1.0, 1.0]], "color": "nope"})).is_err());
+    let r = s.execute("draw.inkToShape", &json!({})).unwrap();
+    assert!(!r["shapes"].as_array().unwrap().is_empty(), "{r}");
+}

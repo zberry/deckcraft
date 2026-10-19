@@ -52,7 +52,7 @@ pub fn tool_kind(name: &str, preset: Option<&str>) -> Option<ToolKind> {
         "select" | "selection" | "arrow" => ToolKind::Select,
         "textBox" | "text" | "textbox" => ToolKind::TextBox,
         "shape" => ToolKind::Shape { preset: preset.unwrap_or("rect").to_string() },
-        "pen" => ToolKind::Ink { mode: "pen".into(), color: deckcraft_engine::model::Rgba::BLACK, width: 2.0 },
+        "pen" => ToolKind::Ink { mode: "pen".into(), color: deckcraft_engine::tools::DEFAULT_PEN_COLOR, width: 2.0 },
         "highlighter" => ToolKind::Ink { mode: "highlighter".into(), color: deckcraft_engine::model::Rgba::rgb(255, 230, 0), width: 10.0 },
         "eraser" => ToolKind::Ink { mode: "eraser".into(), color: deckcraft_engine::model::Rgba::BLACK, width: 2.0 },
         other if deckcraft_engine::geom::preset::info(other).is_some() => ToolKind::Shape { preset: other.to_string() },

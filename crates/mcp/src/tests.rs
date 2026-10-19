@@ -742,3 +742,12 @@ fn key_during_a_show_adds_where_the_show_is() {
     let t = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "key").unwrap();
     assert!(t["description"].as_str().unwrap().contains("showing"), "{t}");
 }
+
+/// JJ4: the pen tool inks red by default (PowerPoint's pen), visible on a dark theme.
+#[test]
+fn the_pen_tool_defaults_to_red() {
+    match crate::headless::tool_kind("pen", None) {
+        Some(deckcraft_engine::ToolKind::Ink { color, .. }) => assert_eq!(color, deckcraft_engine::model::Rgba::rgb(0xFF, 0, 0)),
+        other => panic!("{other:?}"),
+    }
+}

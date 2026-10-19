@@ -40,6 +40,15 @@ pub fn specs() -> Vec<CommandSpec> {
             has_slide,
             ink_to_shape
         ),
+        cmd!(
+            "draw.stroke",
+            "Ink Stroke",
+            ["Draw", "Pens"],
+            None,
+            "{points: [[x, y], …] slide pt (≥ 2), color?: #RRGGBB|name (default red, the pen's), width?: pt (default 2)} → {ink} adds one pen stroke to the slide's ink layer without the pointer; draw.inkToShape then converts it",
+            has_slide,
+            ink_stroke
+        ),
         cmd!(query "shape.sites", "Connection Sites", [], None, "{id} → [[x, y]] connection sites in slide points", has_slide, sites),
         cmd!(
             "shape.move",
@@ -1510,6 +1519,33 @@ mod size_position_tests {
         let err = s.execute("shape.sizePosition", &json!({})).unwrap_err();
         assert!(err.to_string().contains("nothing selected"), "{err}");
     }
+}
+
+/// A pen stroke from points, as the pen tool would draw it.
+fn ink_stroke(s: &mut Session, p: &Value) -> Result<Value> {
+    let pts: Vec<(f64, f64, f32)> = p
+        .get("points")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| Some((v.get(0)?.as_f64()?, v.get(1)?.as_f64()?, 1.0f32)))
+                .filter(|q| q.0.is_finite() && q.1.is_finite())
+                .take(20_000)
+                .collect()
+        })
+        .unwrap_or_default();
+    if pts.len() < 2 {
+        return Err(bad("draw.stroke", "need at least two points"));
+    }
+    let color = match p.get("color") {
+        None | Some(Value::Null) => crate::tools::DEFAULT_PEN_COLOR,
+        Some(Value::String(c)) => deckcraft_color::Rgba::from_hex(c)
+            .or_else(|| deckcraft_color::preset(c))
+            .ok_or_else(|| bad("draw.stroke", "`color` is not a colour: give #RRGGBB or a colour name"))?,
+        Some(_) => return Err(bad("draw.stroke", "`color` is not a colour: give #RRGGBB or a colour name")),
+    };
+    let width = f64_param(p, "width").filter(|w| w.is_finite()).unwrap_or(crate::tools::DEFAULT_PEN_WIDTH).clamp(0.25, 100.0);
+    s.add_ink_stroke(deckcraft_model::InkStroke { points: pts, color, width, highlighter: false })
 }
 
 /// Draw › Ink to Shape: each recognisable stroke of the slide's ink becomes a preset shape

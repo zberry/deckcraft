@@ -52,6 +52,11 @@ pub struct PointerEvent {
     pub pressure: Option<f32>,
 }
 
+/// The pen's default ink: red, PowerPoint's first pen (black vanishes on a dark theme).
+pub const DEFAULT_PEN_COLOR: deckcraft_color::Rgba = deckcraft_color::Rgba::rgb(0xFF, 0x00, 0x00);
+/// The pen's default width in points.
+pub const DEFAULT_PEN_WIDTH: f64 = 2.0;
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ToolKind {
@@ -1646,7 +1651,11 @@ impl Session {
 
     fn add_ink(&mut self, points: Vec<(f64, f64, f32)>) -> Result<Value> {
         let ToolKind::Ink { mode, color, width } = self.tool.kind.clone() else { return Ok(Value::Null) };
-        let stroke = deckcraft_model::InkStroke { points, color, width, highlighter: mode == "highlighter" };
+        self.add_ink_stroke(deckcraft_model::InkStroke { points, color, width, highlighter: mode == "highlighter" })
+    }
+
+    /// Add `stroke` to the slide's ink layer (one undo step); `draw.stroke` and the pen both end here.
+    pub(crate) fn add_ink_stroke(&mut self, stroke: deckcraft_model::InkStroke) -> Result<Value> {
         // Strokes join the slide's ink layer (one ink shape per slide).
         let existing = self.doc()?.shapes().iter().rev().find(|s| matches!(s.kind, ShapeKind::Ink { .. })).map(|s| s.id);
         self.edit(|doc, sel| {
