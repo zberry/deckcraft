@@ -617,17 +617,23 @@ impl Session {
     }
     pub fn set_active(&mut self, i: usize) {
         if i < self.docs.len() {
+            // The Animation Painter belongs to the presentation window it was armed in.
+            if self.active != Some(i) {
+                self.anim_painter = None;
+            }
             self.active = Some(i);
         }
     }
     pub fn add_document(&mut self, d: DocState) -> usize {
         self.docs.push(d);
+        self.anim_painter = None;
         self.active = Some(self.docs.len() - 1);
         self.docs.len() - 1
     }
     pub fn close_document(&mut self, i: usize) {
         if i < self.docs.len() {
             let d = self.docs.remove(i);
+            self.anim_painter = None;
             if let Some(dir) = &self.recovery_dir {
                 recovery::discard(dir, d.uid);
             }

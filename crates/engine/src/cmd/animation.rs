@@ -70,7 +70,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Animation Painter",
             ["Animations", "Advanced Animation"],
             Some("Alt+Shift+C"),
-            "{id?: the animated shape to copy from (default: the selection), sticky?: bool (one animation.painterApply consumes the picked animations unless sticky: true, which keeps them for several applies)} → {armed, count}",
+            "{id?: the animated shape to copy from (default: the selection), sticky?: bool (one animation.painterApply consumes the picked animations unless sticky: true, which keeps them for several applies)} → {armed: true, sticky, count}; it stays armed until edit.deselect (Esc), after one apply when not sticky, or until file.new, file.open or closing the document disarms it",
             has_selection,
             painter_pick
         ),
@@ -492,7 +492,7 @@ fn painter_pick(s: &mut Session, p: &Value) -> Result<Value> {
     let sticky = bool_or(p, "sticky", false);
     let count = anims.len();
     s.anim_painter = Some((anims, sticky));
-    Ok(json!({"armed": true, "count": count}))
+    Ok(json!({"armed": true, "sticky": sticky, "count": count}))
 }
 
 fn painter_apply(s: &mut Session, p: &Value) -> Result<Value> {
@@ -690,5 +690,40 @@ mod tests {
         s.execute("edit.delete", &json!({"ids": [g]})).unwrap();
         assert_eq!(triggers(&s), vec![None], "the trigger was inside the deleted group");
         assert_eq!(s.doc().unwrap().current_slide().unwrap().animations.len(), 1);
+    }
+
+    #[test]
+    fn animation_painter_answers_its_state_and_a_document_switch_disarms_it() {
+        let mut s = Session::with_new();
+        let id1 = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10.0, 10.0, 100.0, 100.0]})).unwrap()["id"].as_u64().unwrap();
+        s.execute("animation.add", &json!({"effect": "fade", "class": "entrance", "ids": [id1]})).unwrap();
+        let r = s.execute("animation.painter", &json!({"id": id1})).unwrap();
+        assert_eq!((r["armed"].clone(), r["sticky"].clone()), (json!(true), json!(false)), "{r}");
+        let r = s.execute("animation.painter", &json!({"id": id1, "sticky": true})).unwrap();
+        assert_eq!((r["armed"].clone(), r["sticky"].clone()), (json!(true), json!(true)), "{r}");
+        // Esc ends a sticky painter.
+        s.execute("edit.deselect", &json!({})).unwrap();
+        assert!(s.anim_painter.is_none());
+        let arm = |s: &mut Session| {
+            let id = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10.0, 10.0, 100.0, 100.0]})).unwrap()["id"].as_u64().unwrap();
+            s.execute("animation.add", &json!({"effect": "fade", "class": "entrance", "ids": [id]})).unwrap();
+            s.execute("animation.painter", &json!({"id": id, "sticky": true})).unwrap();
+            assert!(s.anim_painter.is_some());
+        };
+        // A new document, an opened file and a closed document each disarm it.
+        let dir = std::env::temp_dir().join(format!("deckcraft-painter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let deck = dir.join("a.deckcraft");
+        s.execute("file.save", &json!({"path": deck.to_string_lossy()})).unwrap();
+        arm(&mut s);
+        s.execute("file.new", &json!({})).unwrap();
+        assert!(s.anim_painter.is_none(), "file.new disarms the painter");
+        arm(&mut s);
+        s.execute("file.open", &json!({"path": deck.to_string_lossy()})).unwrap();
+        assert!(s.anim_painter.is_none(), "file.open disarms the painter");
+        arm(&mut s);
+        s.execute("file.close", &json!({})).unwrap();
+        assert!(s.anim_painter.is_none(), "closing the document disarms the painter");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
