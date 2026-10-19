@@ -46,7 +46,15 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "slide.last", "Last Slide", [], Some("End"), "{}", has_slide, last),
         cmd!(noundo "slide.selectSlides", "Select Slides", [], None, "{ids?: [slide id], indices?: [index (0-based)], add?: bool}", has_slide, select_slides),
         cmd!("slide.hide", "Hide Slide", ["Slide Show", "Set Up"], None, "{index? (0-based), hidden?: bool}", has_slide, hide),
-        cmd!("slide.layout", "Layout", ["Home", "Slides"], None, "{layout: name or kind, index? (0-based)}", has_slide, set_layout),
+        cmd!(
+            "slide.layout",
+            "Layout",
+            ["Home", "Slides"],
+            None,
+            "{layout: name or kind, index? (0-based)} (footers, date and slide number stay; a slide leaving a Title Slide under \"Don't show on title slide\" gets them)",
+            has_slide,
+            set_layout
+        ),
         cmd!(
             "slide.reset",
             "Reset",
@@ -573,8 +581,16 @@ fn set_layout(s: &mut Session, p: &Value) -> Result<Value> {
     s.edit(|doc, sel| {
         let master = current_master(doc, sel);
         let layout = find_layout(doc, &key, master).ok_or_else(|| bad("slide.layout", format!("no layout {key}")))?;
+        let is_title = |doc: &Presentation, id: LayoutId| doc.layout(id).is_some_and(|(_, l)| l.kind == deckcraft_model::LayoutType::Title);
         for i in &targets {
+            let from_title = doc.slides.get(*i).is_some_and(|x| is_title(doc, x.layout));
             apply_layout(doc, *i, layout)?;
+            // "Don't show on title slide" kept the footers off a Title Slide; a slide leaving that
+            // layout shows the presentation's footer, date and slide number as any other slide.
+            if from_title && !is_title(doc, layout) && doc.header_footer.hide_on_title {
+                let hf = doc.header_footer.clone();
+                super::design::apply_header_footer(doc, *i, &hf, false)?;
+            }
         }
         sel.shapes.clear();
         sel.text = None;

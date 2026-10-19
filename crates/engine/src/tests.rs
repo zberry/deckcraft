@@ -2967,6 +2967,66 @@ fn smartart_pictures_3d_styles_and_colour_variants() {
     }
 }
 
+/// slide.layout keeps the slide's footer, date and slide number and binds them to the new layout's
+/// footer placeholders.
+#[test]
+fn slide_layout_keeps_the_footers_and_binds_them_to_the_new_layout() {
+    let mut s = session();
+    s.execute("design.headerFooter", &json!({"footerText": "Acme", "slideNumber": true, "date": true})).unwrap();
+    s.execute("slide.new", &json!({"layout": "titleOnly", "title": "T"})).unwrap();
+    let layouts: Vec<String> = s.execute("document.inspect", &json!({})).unwrap()["layouts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|l| l["name"].as_str().unwrap().to_string())
+        .collect();
+    assert!(layouts.len() > 3, "{layouts:?}");
+    for name in layouts {
+        s.execute("slide.layout", &json!({"layout": name})).unwrap();
+        let st = s.doc().unwrap();
+        let sl = &st.doc.slides[st.selection.slide];
+        let (_, lay) = st.doc.layout(sl.layout).unwrap();
+        for k in [deckcraft_model::PhType::Footer, deckcraft_model::PhType::SlideNum, deckcraft_model::PhType::Date] {
+            let on_layout = lay.shapes.iter().find(|x| x.ph_type() == Some(k));
+            let on_slide: Vec<_> = sl.shapes.iter().filter(|x| x.ph_type() == Some(k)).collect();
+            if let Some(lp) = on_layout {
+                assert_eq!(on_slide.len(), 1, "{name}: one {k:?} on the slide");
+                assert_eq!(on_slide[0].ph.as_ref().unwrap().idx, lp.ph.as_ref().unwrap().idx, "{name}: {k:?} bound to the layout's placeholder");
+            }
+        }
+        let footer = sl.shapes.iter().find(|x| x.ph_type() == Some(deckcraft_model::PhType::Footer));
+        if lay.shapes.iter().any(|x| x.ph_type() == Some(deckcraft_model::PhType::Footer)) {
+            assert_eq!(footer.and_then(|f| f.text.as_ref()).map(|t| t.text()), Some("Acme".to_string()), "{name}");
+        }
+    }
+}
+
+/// "Don't show on title slide" keeps the footers off a Title Slide; moving the slide to another
+/// layout shows the presentation's footer and slide number on it.
+#[test]
+fn slide_layout_off_a_title_slide_shows_the_presentations_footers() {
+    let mut s = session();
+    s.execute("design.headerFooter", &json!({"footerText": "Acme", "slideNumber": true, "hideOnTitle": true})).unwrap();
+    s.execute("slide.new", &json!({"layout": "titleSlide", "title": "T"})).unwrap();
+    let kinds = |s: &Session| {
+        let st = s.doc().unwrap();
+        st.doc.slides[st.selection.slide].shapes.iter().filter_map(|x| x.ph_type()).filter(|k| k.is_footer_kind()).collect::<Vec<_>>()
+    };
+    assert!(kinds(&s).is_empty());
+    s.execute("slide.layout", &json!({"layout": "Title and Content"})).unwrap();
+    let k = kinds(&s);
+    assert!(k.contains(&deckcraft_model::PhType::Footer) && k.contains(&deckcraft_model::PhType::SlideNum), "{k:?}");
+    let st = s.doc().unwrap();
+    let f = st.doc.slides[st.selection.slide].shapes.iter().find(|x| x.ph_type() == Some(deckcraft_model::PhType::Footer)).unwrap();
+    assert_eq!(f.text.as_ref().map(|t| t.text()), Some("Acme".to_string()));
+    // Between two ordinary layouts nothing is re-applied: a slide whose footers were removed
+    // stays without them.
+    s.execute("design.headerFooter", &json!({"footer": false, "slideNumber": false, "all": false})).unwrap();
+    assert!(kinds(&s).is_empty());
+    s.execute("slide.layout", &json!({"layout": "Two Content"})).unwrap();
+    assert!(kinds(&s).is_empty());
+}
+
 #[test]
 fn smartart_converts_to_and_from_text_and_shapes() {
     let mut s = session();
