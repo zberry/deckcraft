@@ -1,7 +1,7 @@
 //! Transitions and the animation timing tree.
 
 use deckcraft_model::anim::{AnimClass, AnimStart, Animation, BuildRole, TextBuild, Transition, build_filled, paragraph_build_roles};
-use deckcraft_model::{Shape, ShapeId, ShapeKind, find_shape};
+use deckcraft_model::{MediaClip, Shape, ShapeId, ShapeKind, find_shape};
 
 use super::shapes::IdMap;
 use super::{Exp, Out};
@@ -114,7 +114,8 @@ struct Eff<'a> {
     grp: u32,
 }
 
-struct Ids(u32);
+/// Node id counter, plus the id of each media shape's Play effect (for its media node's start).
+struct Ids(u32, Vec<(u32, u32)>);
 
 impl Ids {
     fn next(&mut self) -> u32 {
@@ -470,10 +471,15 @@ fn effect_par(w: &mut W, x: &mut Exp, ids: &mut Ids, e: &Eff, first_in_click: bo
     let bounce =
         (a.bounce_end.is_finite() && a.bounce_end > 0.0).then(|| (a.bounce_end.clamp(0.0, 1.0) * 100_000.0).round() as i64).filter(|n| *n > 0);
     w.open0("p:par");
+    let id = ids.next();
+    // The media node begins with its Play effect; a Pause or Stop does not start the clip.
+    if a.class == AnimClass::Media && !matches!(a.effect.as_str(), "pause" | "stop") && !ids.1.iter().any(|(s, _)| *s == e.spid) {
+        ids.1.push((e.spid, id));
+    }
     w.open(
         "p:cTn",
         A::new()
-            .a("id", ids.next())
+            .a("id", id)
             .a("presetID", preset)
             .a("presetClass", a.class.xml())
             .a("presetSubtype", sub)
@@ -565,15 +571,84 @@ fn click_pars(w: &mut W, x: &mut Exp, ids: &mut Ids, clicks: &Groups, interactiv
     }
 }
 
+/// The `p:audio`/`p:video` node that carries a clip's playback options: volume, loop, rewind,
+/// play across slides, hide while not playing and full screen. Its start condition names the
+/// clip's Play effect when there is one.
+fn media_node(w: &mut W, ids: &mut Ids, spid: u32, m: &MediaClip) {
+    let tag = if m.video { "p:video" } else { "p:audio" };
+    let vol = if m.volume.is_finite() { (m.volume.clamp(0.0, 1.0) * 100_000.0).round() as i64 } else { 100_000 };
+    let play = ids.1.iter().find(|(s, _)| *s == spid).map(|(_, id)| *id);
+    w.open(tag, A::new().t("fullScrn", m.video && m.full_screen));
+    w.open(
+        "p:cMediaNode",
+        A::new()
+            .a("vol", vol)
+            .t("mute", vol == 0)
+            .o("numSld", m.play_across_slides.then_some(999))
+            .o("showWhenStopped", m.hide_while_not_playing.then_some(0)),
+    );
+    w.open(
+        "p:cTn",
+        A::new()
+            .a("id", ids.next())
+            .o("repeatCount", m.loop_play.then_some("indefinite"))
+            .a("fill", if m.rewind { "remove" } else { "hold" })
+            .a("display", 0),
+    );
+    w.open0("p:stCondLst");
+    w.empty("p:cond", A::new().a("delay", "indefinite"));
+    if let Some(id) = play {
+        w.open("p:cond", A::new().a("evt", "onBegin").a("delay", 0));
+        w.val("p:tn", id);
+        w.close("p:cond");
+    }
+    w.close("p:stCondLst");
+    w.open0("p:endCondLst");
+    w.open("p:cond", A::new().a("evt", "onStopAudio").a("delay", 0));
+    w.open0("p:tgtEl");
+    w.empty0("p:sldTgt");
+    w.close("p:tgtEl");
+    w.close("p:cond");
+    w.close("p:endCondLst");
+    w.close("p:cTn");
+    w.open0("p:tgtEl");
+    w.empty("p:spTgt", A::new().a("spid", spid));
+    w.close("p:tgtEl");
+    w.close("p:cMediaNode");
+    w.close(tag);
+}
+
 /// Write `p:timing` for a slide's animations.
 pub fn timing(w: &mut W, x: &mut Exp, anims: &[Animation], shapes: &[Shape], idmap: &IdMap) {
+    // "Start: Automatically" is a Play effect After Previous at the head of the main sequence; a
+    // clip with `autoplay` and no such effect of its own gets one here.
+    let mut synth: Vec<Animation> = vec![];
+    let mut nodes: Vec<(u32, &MediaClip)> = vec![];
+    deckcraft_model::walk(shapes, &mut |s, _| {
+        let ShapeKind::Media(m) = &s.kind else { return };
+        let Some(spid) = idmap.get(s.id) else { return };
+        let has_play = anims.iter().any(|a| a.class == AnimClass::Media && a.shape == s.id && a.start != AnimStart::OnClick && a.trigger.is_none());
+        if m.autoplay && !has_play {
+            synth.push(Animation {
+                shape: s.id,
+                class: AnimClass::Media,
+                effect: "play".into(),
+                start: AnimStart::AfterPrevious,
+                duration_ms: 1,
+                ..Default::default()
+            });
+        }
+        if m.autoplay || m.loop_play || m.rewind || m.play_across_slides || m.hide_while_not_playing || m.full_screen || m.volume < 1.0 {
+            nodes.push((spid, m));
+        }
+    });
     let mut grp_count: std::collections::HashMap<u32, u32> = Default::default();
     let mut main: Vec<Eff> = vec![];
     let mut triggered: Vec<(u32, Vec<Eff>)> = vec![];
     let mut bld: Vec<(u32, u32, bool)> = vec![];
     // The last paragraph effect written: (shape, class, trigger, grpId).
     let mut prev_para: Option<(ShapeId, AnimClass, Option<ShapeId>, u32)> = None;
-    for a in anims.iter().take(10_000) {
+    for a in synth.iter().chain(anims.iter()).take(10_000) {
         let Some(spid) = idmap.get(a.shape) else {
             log::warn!("pptx: animation on missing shape {} skipped", a.shape);
             continue;
@@ -636,10 +711,10 @@ pub fn timing(w: &mut W, x: &mut Exp, anims: &[Animation], shapes: &[Shape], idm
             None => main.extend(effs),
         }
     }
-    if main.is_empty() && triggered.is_empty() {
+    if main.is_empty() && triggered.is_empty() && nodes.is_empty() {
         return;
     }
-    let mut ids = Ids(0);
+    let mut ids = Ids(0, vec![]);
     w.open0("p:timing");
     w.open0("p:tnLst");
     w.open0("p:par");
@@ -706,6 +781,9 @@ pub fn timing(w: &mut W, x: &mut Exp, anims: &[Animation], shapes: &[Shape], idm
         trig_cond(w);
         w.close("p:nextCondLst");
         w.close("p:seq");
+    }
+    for (spid, m) in nodes {
+        media_node(w, &mut ids, spid, m);
     }
     w.close("p:childTnLst");
     w.close("p:cTn");
