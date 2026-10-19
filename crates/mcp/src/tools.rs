@@ -287,7 +287,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "key",
             "Press key",
-            "Press a key as on the keyboard: text editing keys (arrows, Backspace, Enter, Tab), nudges (with shapes selected, an arrow key moves them 6 pt, alt+arrow 1 pt; the answer carries `selected: [{id, rect}]`, the moved boxes), and shortcuts (cmd+B…).",
+            "Press a key as on the keyboard: text editing keys (arrows, Backspace, Enter, Tab), nudges (with shapes selected, an arrow key moves them 6 pt, alt+arrow 1 pt; the answer carries `selected: [{id, rect}]`, the moved boxes), and shortcuts (cmd+B…). During a slide show the key goes to the show and the answer carries `showing: {slide, step, ended}` (the show's place after the key; slide 0-based), so no second call is needed.",
             obj(json!({"key": string("Key name or character"), "mods": mods_schema()}), &["key"]),
             false,
         ),
@@ -611,7 +611,15 @@ pub fn call_tool(b: &mut dyn Backend, name: &str, a: &Value) -> ToolResult {
                 a.get("key").and_then(Value::as_str).map(str::to_ascii_lowercase).as_deref(),
                 Some("arrowleft" | "arrowright" | "arrowup" | "arrowdown" | "left" | "right" | "up" | "down")
             );
-            wrap(b.call("ui.key", p).map(|v| with_selected(b, v, nudge)))
+            wrap(b.call("ui.key", p).map(|mut v| {
+                if v.get("show").and_then(Value::as_bool) == Some(true)
+                    && let Some(showing) = b.call("ui.inspect", json!({})).ok().and_then(|i| i.get("showing").cloned())
+                    && let Some(o) = v.as_object_mut()
+                {
+                    o.insert("showing".into(), showing);
+                }
+                with_selected(b, v, nudge)
+            }))
         }
         "type_text" => wrap(b.call("ui.text", a)),
         "screenshot" => {

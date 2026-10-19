@@ -708,3 +708,37 @@ fn export_tool_lists_frames_and_writes_a_folder() {
     assert_eq!(r["result"]["isError"], true, "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn inspect_document_brief_lists_shapes_per_slide() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    tool(&mut s, "new_presentation", json!({"theme": "Harbor"}));
+    tool(&mut s, "add_slide", json!({"layout": "titleAndContent", "title": "Highlights", "body": "Revenue up"}));
+    let plain = tool(&mut s, "inspect_document", json!({}));
+    assert!(plain["slides"][1].get("shapeList").is_none());
+    let doc = tool(&mut s, "inspect_document", json!({"shapes": "brief"}));
+    let list = doc["slides"][1]["shapeList"].as_array().unwrap();
+    assert!(list.iter().any(|x| x["text"] == "Highlights" && x["kind"].is_string() && x["id"].is_u64() && x["name"].is_string()), "{list:?}");
+}
+
+/// JJ2: a `key` during a show answers where the show is, in the same agent call.
+#[test]
+fn key_during_a_show_adds_where_the_show_is() {
+    let calls = std::rc::Rc::new(std::cell::RefCell::new(vec![]));
+    let mut s = Server::new(Box::new(FakeApp { calls: calls.clone() }));
+    let r = call(&mut s, 1, "tools/call", json!({"name": "key", "arguments": {"key": "ArrowRight"}}));
+    assert_eq!(r["result"]["isError"], false, "{r}");
+    let v: Value = serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(v["show"], true, "{v}");
+    assert_eq!(v["showing"], json!({"slide": 2, "step": 1, "ended": false}), "{v}");
+    assert!(calls.borrow().iter().any(|(m, _)| m == "ui.inspect"));
+    // Outside a show the answer is the key's own, with no inspect call.
+    calls.borrow_mut().clear();
+    let r = call(&mut s, 2, "tools/call", json!({"name": "key", "arguments": {"key": "x"}}));
+    let v: Value = serde_json::from_str(r["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert!(v.get("showing").is_none(), "{v}");
+    assert!(!calls.borrow().iter().any(|(m, _)| m == "ui.inspect"));
+    let tools = call(&mut s, 3, "tools/list", json!({}));
+    let t = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "key").unwrap();
+    assert!(t["description"].as_str().unwrap().contains("showing"), "{t}");
+}

@@ -101,8 +101,8 @@ pub fn specs() -> Vec<CommandSpec> {
             reject
         ),
         cmd!(noundo "review.endCompare", "End Review", ["Review", "Compare"], None, "{}", comparing, end_compare),
-        cmd!(noundo "show.fromStart", "Play from Start", ["Slide Show", "Start Slide Show"], Some("Cmd+Shift+Enter"), "{}", has_slide, |s, _| start(s, 0)),
-        cmd!(noundo "show.fromCurrent", "Play from Current Slide", ["Slide Show", "Start Slide Show"], Some("Cmd+Enter"), "{}", has_slide, |s, _| {
+        cmd!(noundo "show.fromStart", "Play from Start", ["Slide Show", "Start Slide Show"], Some("Cmd+Shift+Enter"), "{} → {from, slide, step} (the show opens in the app, not in a headless session; the answer is where it starts: slide 0-based, step 0. Ask the running show with `key` or ui.inspect `showing`)", has_slide, |s, _| start(s, 0)),
+        cmd!(noundo "show.fromCurrent", "Play from Current Slide", ["Slide Show", "Start Slide Show"], Some("Cmd+Enter"), "{} → {from, slide, step} (as show.fromStart, from the selected slide)", has_slide, |s, _| {
             let i = s.doc()?.selection.slide;
             start(s, i)
         }),
@@ -602,7 +602,7 @@ fn dictionary_info(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn start(s: &mut Session, from: usize) -> Result<Value> {
     s.ui_requests.push(UiRequest::StartShow { from });
-    Ok(json!({"from": from}))
+    Ok(json!({"from": from, "slide": from, "step": 0}))
 }
 
 fn setup(s: &mut Session, p: &Value) -> Result<Value> {

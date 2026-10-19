@@ -7003,3 +7003,45 @@ fn hide_background_graphics_in_layout_view_sets_the_layout() {
     s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
     assert!(s.execute("design.hideBackgroundGraphics", &json!({"hide": true})).is_err());
 }
+
+/// #891: Design ▸ Format Background ▸ Apply to All sets the master's background and clears the
+/// slides' own, so a slide added later inherits it.
+#[test]
+fn background_all_reaches_slides_added_later() {
+    use deckcraft_model::resolve::{self, Ctx};
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "titleAndContent"})).unwrap();
+    s.execute("design.background", &json!({"color": "#ff0000", "all": true})).unwrap();
+    s.execute("slide.new", &json!({"layout": "titleOnly"})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let st = s.doc().unwrap();
+    let red = |i: usize| {
+        let sl = st.doc.slides.get(i).unwrap();
+        let ctx = Ctx::for_slide(&st.doc, sl).unwrap();
+        let (fill, _) = resolve::background(&ctx, Some(sl));
+        format!("{fill:?}")
+    };
+    assert!(red(0).contains("ff0000") || red(0).contains("255"), "{}", red(0));
+    for i in 1..st.doc.slides.len() {
+        assert_eq!(red(i), red(0), "slide {i} follows");
+    }
+    assert!(st.doc.slides.iter().all(|sl| sl.background.is_none()), "no per-slide override");
+    // A single slide keeps its own override.
+    s.execute("design.background", &json!({"color": "#00ff00"})).unwrap();
+    let st = s.doc().unwrap();
+    assert!(st.doc.slides[st.selection.slide].background.is_some());
+    assert!(st.doc.slides.iter().filter(|sl| sl.background.is_some()).count() == 1);
+}
+
+#[test]
+fn show_start_answers_where_the_show_starts() {
+    let mut s = session();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    let v = s.execute("show.fromStart", &json!({})).unwrap();
+    assert_eq!((v["slide"].as_u64(), v["step"].as_u64()), (Some(0), Some(0)), "{v}");
+    let v = s.execute("show.fromCurrent", &json!({})).unwrap();
+    assert_eq!((v["slide"].as_u64(), v["step"].as_u64()), (Some(2), Some(0)), "{v}");
+    assert_eq!(v["from"], 2, "the old field stays");
+    assert!(find_command("show.fromStart").unwrap().params.contains("slide"));
+}
