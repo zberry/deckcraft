@@ -30,7 +30,15 @@ pub fn specs() -> Vec<CommandSpec> {
             duplicate
         ),
         cmd!("slide.delete", "Delete Slide", ["Edit"], None, "{index? (0-based), ids?: [slide id]}", has_slide, delete),
-        cmd!("slide.move", "Move Slide", [], None, "{from?: index, to: index} (0-based; to is the final index) → {index, id}", has_slide, move_slide),
+        cmd!(
+            "slide.move",
+            "Move Slide",
+            [],
+            None,
+            "{from?: index, to: index} (0-based; to is the final index) → {index, id, section: {index, name} of the section the slide now belongs to, null without sections}",
+            has_slide,
+            move_slide
+        ),
         cmd!(noundo "slide.go", "Go to Slide", [], None, "{index (0-based)} | {id}", has_slide, go),
         cmd!(noundo "slide.next", "Next Slide", [], Some("PageDown"), "{}", has_slide, next),
         cmd!(noundo "slide.previous", "Previous Slide", [], Some("PageUp"), "{}", has_slide, prev),
@@ -361,7 +369,8 @@ fn move_slide(s: &mut Session, p: &Value) -> Result<Value> {
         }
         sel.slide = to;
         sel.slides = vec![id];
-        Ok(json!({"index": to, "id": id}))
+        let section = doc.section_of(id).and_then(|i| doc.sections.get(i).map(|sec| json!({"index": i, "name": sec.name})));
+        Ok(json!({"index": to, "id": id, "section": section}))
     })
 }
 

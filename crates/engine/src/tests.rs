@@ -7240,3 +7240,32 @@ fn document_inspect_brief_lists_each_slides_shapes() {
     assert_eq!(r["slides"][1]["shapes"], plain["slides"][1]["shapes"], "the count stays");
     assert!(s.execute("document.inspect", &json!({"shapes": "all"})).is_err());
 }
+
+#[test]
+fn slide_move_answers_its_section_and_exports_name_the_hidden_slides_they_skip() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let m = s.execute("slide.move", &json!({"from": 2, "to": 0})).unwrap();
+    assert_eq!(m["section"], json!(null), "no sections: no section");
+    s.execute("section.add", &json!({"name": "Intro", "at": 0})).unwrap();
+    s.execute("section.add", &json!({"name": "Body", "at": 2})).unwrap();
+    let m = s.execute("slide.move", &json!({"from": 0, "to": 2})).unwrap();
+    assert_eq!(m["index"], json!(2));
+    assert_eq!(m["section"]["name"], json!("Body"), "{m}");
+    assert_eq!(m["section"]["index"], json!(1), "{m}");
+
+    s.execute("slide.hide", &json!({"index": 1, "hidden": true})).unwrap();
+    let dir = std::env::temp_dir().join(format!("deckcraft-skipped-{}", std::process::id()));
+    for (file, extra) in [("d.gif", json!({"width": 64})), ("d.pdf", json!({}))] {
+        let path = dir.join(file);
+        let mut p = json!({"path": path.to_string_lossy()});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let r = s.execute("file.export", &p).unwrap();
+        assert_eq!(r["skipped"], json!([1]), "{file}: {r}");
+        p["includeHidden"] = json!(true);
+        let r = s.execute("file.export", &p).unwrap();
+        assert_eq!(r["skipped"], json!([]), "{file}: {r}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
