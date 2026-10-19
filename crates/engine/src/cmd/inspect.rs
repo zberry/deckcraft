@@ -10,7 +10,7 @@ use crate::{Result, Session};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; selection; size; theme", has_doc, document),
-        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
+        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
@@ -220,6 +220,35 @@ fn text_color(c: &Ctx, sh: &Shape) -> Option<Value> {
     })
 }
 
+/// The shape's text runs with the values the renderer sizes them by: `[{text, size, font, bold,
+/// italic, color}]`, resolved through the placeholder, layout, master and theme, the size with the
+/// autofit scale applied.
+pub(crate) fn runs_of(c: &Ctx, sh: &Shape) -> Vec<Value> {
+    let Some(body) = sh.text.as_ref() else { return vec![] };
+    let x = resolve::xfrm(c, sh);
+    let rect = deckcraft_render::shape_geometry(sh, x.w, x.h).text_rect;
+    let scale =
+        deckcraft_text::layout(c, sh, body, &deckcraft_text::Opts { rect, fields: &deckcraft_text::NoFields, prompt_color: None, no_shrink: false })
+            .font_scale;
+    let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let mut out = vec![];
+    for para in &body.paragraphs {
+        for run in para.runs.iter().filter(|r| !r.text.is_empty()) {
+            let r = resolve::run(c, sh, para, &run.props);
+            let size = (r.size.unwrap_or(18.0) * scale * 100.0).round() / 100.0;
+            out.push(json!({
+                "text": run.text,
+                "size": size,
+                "font": resolve::font_family(c, &r),
+                "bold": r.bold.unwrap_or(false),
+                "italic": r.italic.unwrap_or(false),
+                "color": format!("#{}", resolve::text_color(c, &r).hex()),
+            }));
+        }
+    }
+    out
+}
+
 /// The shape's hyperlinks: each linked run's text with its target, a `url` or the 0-based
 /// `slide` index.
 fn links(c: &Ctx, sh: &Shape) -> Vec<Value> {
@@ -254,6 +283,17 @@ fn slide(s: &mut Session, p: &Value) -> Result<Value> {
         {
             o.insert("zoom".into(), z);
         }
+    }
+    if matches!(p.get("text"), Some(Value::String(t)) if t == "runs") {
+        for (sh, v) in sl.shapes.iter().zip(shapes.iter_mut()) {
+            if let (Some(c), Some(o)) = (ctx.as_ref(), v.as_object_mut())
+                && sh.text.as_ref().is_some_and(|t| !t.is_empty())
+            {
+                o.insert("runs".into(), Value::Array(runs_of(c, sh)));
+            }
+        }
+    } else if p.get("text").is_some_and(|t| !t.is_null()) {
+        return Err(bad("slide.inspect", "`text` can only be \"runs\""));
     }
     // In Slide Master / layout view the shapes being edited are the master's or layout's, not
     // the slide's behind the window.

@@ -7372,3 +7372,26 @@ fn shape_connect_answers_the_rendered_path() {
     let r = s.execute("shape.connect", &json!({"from": a, "to": b})).unwrap();
     assert_eq!(r["path"].as_array().map(Vec::len), Some(2), "a straight connector is one segment: {r}");
 }
+
+/// NN2: `text.get {runs: true}` and `slide.inspect {text: "runs"}` report the effective size,
+/// font, weight and colour: a title placeholder without an explicit size has the layout's.
+#[test]
+fn text_runs_report_effective_sizes() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "Title Slide"})).unwrap();
+    let sl = s.execute("slide.inspect", &json!({})).unwrap();
+    let title = sl["shapes"].as_array().unwrap().iter().find(|x| x["placeholder"] == "ctrTitle" || x["placeholder"] == "title").unwrap();
+    let id = title["id"].clone();
+    s.execute("text.set", &json!({"id": id, "text": "Hello"})).unwrap();
+    let t = s.execute("text.get", &json!({"id": id, "runs": true})).unwrap();
+    let r = &t["runs"][0];
+    assert_eq!(r["text"], "Hello", "{t}");
+    let size = r["size"].as_f64().unwrap();
+    assert!(size > 30.0, "a title is drawn at the layout's size, not the 18 pt default: {t}");
+    assert!(r["font"].as_str().is_some_and(|f| !f.is_empty() && !f.starts_with('+')), "{t}");
+    assert!(r["color"].as_str().is_some_and(|c| c.starts_with('#')), "{t}");
+    assert!(s.execute("text.get", &json!({"id": id})).unwrap().get("runs").is_none());
+    let sl = s.execute("slide.inspect", &json!({"text": "runs"})).unwrap();
+    let again = sl["shapes"].as_array().unwrap().iter().find(|x| x["id"] == id).unwrap();
+    assert_eq!(again["runs"][0]["size"].as_f64(), Some(size), "{sl}");
+}

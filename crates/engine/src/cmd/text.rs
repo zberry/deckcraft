@@ -80,7 +80,7 @@ pub fn specs() -> Vec<CommandSpec> {
             has_slide,
             set
         ),
-        cmd!(query "text.get", "Get Text", [], None, "{id?} → {text, paragraphs, slide: the index of the slide the shape is on} (any slide; moves nothing)", has_slide, get),
+        cmd!(query "text.get", "Get Text", [], None, "{id?, runs?: true} → {text, paragraphs, slide: the index of the slide the shape is on, runs?: [{text, size, font, bold, italic, color}] the effective values the renderer uses (placeholder, layout, master, theme and autofit scale resolved)} (any slide; moves nothing)", has_slide, get),
     ]
 }
 
@@ -1274,6 +1274,11 @@ fn get(s: &mut Session, p: &Value) -> Result<Value> {
     let mut v = json!({"text": t.text(), "paragraphs": t.paragraphs.iter().map(|p| json!({"level": p.level, "text": p.text()})).collect::<Vec<_>>()});
     if let Some(i) = super::inspect::slide_of(&ctx) {
         v["slide"] = json!(i);
+    }
+    if bool_param(p, "runs").unwrap_or(false)
+        && let Some(c) = ctx_for(&st.doc, &ctx)
+    {
+        v["runs"] = Value::Array(super::inspect::runs_of(&c, sh));
     }
     Ok(v)
 }
