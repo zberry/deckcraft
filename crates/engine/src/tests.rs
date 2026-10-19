@@ -6878,3 +6878,25 @@ fn style_commands_given_nothing_to_set_are_refused() {
     s.execute("shape.line", &json!({"width": 2})).unwrap();
     s.execute("format.margins", &json!({"left": 5})).unwrap();
 }
+
+#[test]
+fn text_replace_body_scope_skips_footer_date_and_slide_number() {
+    let mut s = session();
+    s.execute("insert.textBox", &json!({"text": "Acme news", "rect": [50.0, 50.0, 300.0, 40.0]})).unwrap();
+    s.execute("design.headerFooter", &json!({"footer": true, "footerText": "Acme Corp"})).unwrap();
+    let r = s.execute("text.replace", &json!({"text": "Acme", "with": "Zed", "scope": "body"})).unwrap();
+    assert_eq!(r["replaced"], 1, "{r}");
+    let footer = |s: &Session| {
+        let st = s.doc().unwrap();
+        st.doc.slides[0]
+            .shapes
+            .iter()
+            .find(|x| x.ph_type() == Some(deckcraft_model::PhType::Footer))
+            .and_then(|x| x.text.as_ref().map(|t| t.text()))
+            .unwrap()
+    };
+    assert_eq!(footer(&s), "Acme Corp", "body leaves the footer alone");
+    let r = s.execute("text.replace", &json!({"text": "Acme", "with": "Zed"})).unwrap();
+    assert_eq!(r["replaced"], 1, "all still reaches the footer: {r}");
+    assert_eq!(footer(&s), "Zed Corp");
+}

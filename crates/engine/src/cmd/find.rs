@@ -25,7 +25,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Replace",
             ["Home", "Editing"],
             None,
-            "{text, with, matchCase?, wholeWords?, scope?: body|titles|notes|all (body: text in non-title placeholders, text boxes, shapes and tables; titles: title placeholders; notes: the notes; default all), at?: a text.find match (replace just that one; default: replace all)} → {replaced, slides: the indices of the slides that changed}",
+            "{text, with, matchCase?, wholeWords?, scope?: body|titles|notes|all (body: text in non-title placeholders other than the footer, date and slide number, text boxes, shapes and tables; titles: title placeholders; notes: the notes; default all), at?: a text.find match (replace just that one; default: replace all)} → {replaced, slides: the indices of the slides that changed}",
             has_doc,
             replace
         ),
@@ -46,6 +46,8 @@ enum Scope {
     Titles,
     Body,
     Notes,
+    /// Footer, date and slide-number placeholders: matched by `all` only.
+    Furniture,
 }
 
 impl Scope {
@@ -69,7 +71,11 @@ fn bodies(slide: &mut Slide, f: &mut dyn FnMut(Loc, Scope, &mut TextBody)) {
         }
         for sh in shapes {
             let id = Some(u64::from(sh.id.0));
-            let scope = if sh.ph_type().is_some_and(deckcraft_model::PhType::is_title) { Scope::Titles } else { Scope::Body };
+            let scope = match sh.ph_type() {
+                Some(t) if t.is_title() => Scope::Titles,
+                Some(deckcraft_model::PhType::Footer | deckcraft_model::PhType::Date | deckcraft_model::PhType::SlideNum) => Scope::Furniture,
+                _ => Scope::Body,
+            };
             if let Some(t) = &mut sh.text {
                 f(Loc { shape: id, cell: None }, scope, t);
             }
