@@ -7872,3 +7872,37 @@ fn slide_inspect_answers_flipped_group_children_where_drawn() {
     assert_eq!(kids[0]["children"][1]["box"], json!([210.0, 10.0, 100.0, 50.0]), "{g}");
     assert_eq!(kids[1]["box"], json!([10.0, 10.0, 100.0, 50.0]), "{g}");
 }
+
+/// BBB2: draw.inkToShape says why each stroke it leaves as ink was not recognised.
+#[test]
+fn ink_to_shape_explains_the_strokes_it_keeps() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let square = |gap: bool| -> Vec<serde_json::Value> {
+        let n = if gap { 30 } else { 39 };
+        (0..=n)
+            .map(|i| {
+                let (u, side) = ((i % 10) as f64 * 20.0, i / 10);
+                match side {
+                    0 => json!([100.0 + u, 100.0]),
+                    1 => json!([300.0, 100.0 + u]),
+                    2 => json!([300.0 - u, 300.0]),
+                    _ => json!([100.0, 300.0 - u]),
+                }
+            })
+            .chain(if gap { None } else { Some(json!([100.0, 100.0])) })
+            .collect()
+    };
+    s.execute("draw.stroke", &json!({"points": square(false)})).unwrap();
+    s.execute("draw.stroke", &json!({"points": square(true)})).unwrap();
+    s.execute("draw.stroke", &json!({"points": [[0.0, 0.0], [1.0, 1.0]]})).unwrap();
+    let r = s.execute("draw.inkToShape", &json!({})).unwrap();
+    assert_eq!(r["shapes"].as_array().unwrap().len(), 1, "{r}");
+    assert_eq!(r["kept"], json!(2), "{r}");
+    let u = r["unrecognised"].as_array().unwrap();
+    assert_eq!(u.len(), 2, "{r}");
+    assert_eq!(u[0]["index"], json!(1));
+    assert!(u[0]["why"].as_str().unwrap().starts_with("open stroke"), "{r}");
+    assert_eq!(u[1]["index"], json!(2));
+    assert!(u[1]["why"].as_str().unwrap().starts_with("too small"), "{r}");
+}

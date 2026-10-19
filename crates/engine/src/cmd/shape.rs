@@ -36,7 +36,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Ink to Shape",
             ["Draw", "Convert"],
             None,
-            "{} → {shapes: [ids], kept: n} turns recognisable ink strokes on the slide into lines, rectangles, ellipses and triangles",
+            "{} → {shapes: [ids], kept: n, unrecognised?: [{index (of the stroke in the ink), why}] for each stroke left as ink} turns recognisable ink strokes on the slide into lines, rectangles, ellipses and triangles",
             has_slide,
             ink_to_shape
         ),
@@ -1590,7 +1590,7 @@ fn ink_stroke(s: &mut Session, p: &Value) -> Result<Value> {
 /// Draw › Ink to Shape: each recognisable stroke of the slide's ink becomes a preset shape
 /// outlined in the stroke's colour and width; the rest stays ink. One undo step.
 fn ink_to_shape(s: &mut Session, _p: &Value) -> Result<Value> {
-    use crate::inkshape::{Recognized, recognize};
+    use crate::inkshape::{Recognized, classify};
     use deckcraft_model::{Shape, ShapeId, ShapeKind};
     let shapes = s.doc()?.shapes();
     let Some(ink) = shapes.iter().find(|sh| matches!(sh.kind, ShapeKind::Ink { .. })) else {
@@ -1598,12 +1598,21 @@ fn ink_to_shape(s: &mut Session, _p: &Value) -> Result<Value> {
     };
     let (ink_id, off) = (ink.id, ink.xfrm.map(|x| (x.x, x.y)).unwrap_or((0.0, 0.0)));
     let ShapeKind::Ink { strokes } = &ink.kind else { return Ok(json!({"shapes": [], "kept": 0})) };
-    let found: Vec<Option<Recognized>> = strokes
+    let verdicts: Vec<std::result::Result<Recognized, &'static str>> = strokes
         .iter()
-        .map(|st| if st.highlighter { None } else { recognize(&st.points.iter().map(|(x, y, _)| (x + off.0, y + off.1)).collect::<Vec<_>>()) })
+        .map(|st| {
+            if st.highlighter {
+                Err("highlighter stroke: highlighter ink is never converted")
+            } else {
+                classify(&st.points.iter().map(|(x, y, _)| (x + off.0, y + off.1)).collect::<Vec<_>>())
+            }
+        })
         .collect();
+    let unrecognised: Vec<Value> =
+        verdicts.iter().enumerate().filter_map(|(i, v)| v.as_ref().err().map(|why| json!({"index": i, "why": why}))).collect();
+    let found: Vec<Option<Recognized>> = verdicts.into_iter().map(|v| v.ok()).collect();
     if found.iter().all(Option::is_none) {
-        return Ok(json!({"shapes": [], "kept": strokes.len()}));
+        return Ok(json!({"shapes": [], "kept": strokes.len(), "unrecognised": unrecognised}));
     }
     s.edit(|doc, sel| {
         let mut new = vec![];
@@ -1659,7 +1668,7 @@ fn ink_to_shape(s: &mut Session, _p: &Value) -> Result<Value> {
             new.push(id);
         }
         sel.shapes = new.clone();
-        Ok(json!({"shapes": new.iter().map(|i| i.0).collect::<Vec<_>>(), "kept": remaining}))
+        Ok(json!({"shapes": new.iter().map(|i| i.0).collect::<Vec<_>>(), "kept": remaining, "unrecognised": unrecognised}))
     })
 }
 

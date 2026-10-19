@@ -42,9 +42,14 @@ const MIN_SIZE: f64 = 6.0;
 const MAX_POINTS: usize = 100_000;
 
 pub fn recognize(points: &[(f64, f64)]) -> Option<Recognized> {
+    classify(points).ok()
+}
+
+/// Like [`recognize`], but a stroke that stays ink says why.
+pub fn classify(points: &[(f64, f64)]) -> Result<Recognized, &'static str> {
     let pts: Vec<(f64, f64)> = points.iter().copied().filter(|(x, y)| x.is_finite() && y.is_finite()).take(MAX_POINTS).collect();
     if pts.len() < 2 {
-        return None;
+        return Err("too few points: a stroke needs at least two");
     }
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for (x, y) in &pts {
@@ -56,21 +61,25 @@ pub fn recognize(points: &[(f64, f64)]) -> Option<Recognized> {
     let (w, h) = (x1 - x0, y1 - y0);
     let size = w.max(h);
     if !size.is_finite() || size < MIN_SIZE {
-        return None;
+        return Err("too small: a dot or tiny mark stays ink");
     }
     let length: f64 = pts.windows(2).map(|p| (p[1].0 - p[0].0).hypot(p[1].1 - p[0].1)).sum();
     let (first, last) = (pts[0], pts[pts.len() - 1]);
     let gap = (last.0 - first.0).hypot(last.1 - first.1);
     if length <= 0.0 {
-        return None;
+        return Err("too few points: the stroke does not move");
     }
     // Open stroke: a line if nearly straight, otherwise not a shape.
     if gap > 0.25 * size {
-        return (gap / length > 0.92).then_some(Recognized::Line { x0: first.0, y0: first.1, x1: last.0, y1: last.1 });
+        return if gap / length > 0.92 {
+            Ok(Recognized::Line { x0: first.0, y0: first.1, x1: last.0, y1: last.1 })
+        } else {
+            Err("open stroke: close the loop for an ellipse, rectangle or triangle, or draw it straight for a line")
+        };
     }
     // Closed but flat: a line drawn back and forth isn't a shape.
     if w.min(h) < 0.15 * size {
-        return None;
+        return Err("flat stroke: drawn back and forth along a line, not around a shape");
     }
     // Covered area (shoelace, the gap closed) over the bounding box.
     let mut a2 = 0.0;
@@ -84,16 +93,16 @@ pub fn recognize(points: &[(f64, f64)]) -> Option<Recognized> {
     let radial: Vec<f64> = pts.iter().map(|(x, y)| ((x - cx) / (w / 2.0)).hypot((y - cy) / (h / 2.0))).collect();
     let spread = radial.iter().map(|r| (r - 1.0).abs()).sum::<f64>() / radial.len() as f64;
     if cover > 0.86 {
-        Some(Recognized::Rect { x: x0, y: y0, w, h })
+        Ok(Recognized::Rect { x: x0, y: y0, w, h })
     } else if cover > 0.66 && spread < 0.12 {
-        Some(Recognized::Ellipse { x: x0, y: y0, w, h })
+        Ok(Recognized::Ellipse { x: x0, y: y0, w, h })
     } else if (0.35..0.66).contains(&cover) {
         // Apex: the side of the box with fewer points near it is where the triangle narrows.
         let near_top = pts.iter().filter(|(_, y)| *y < y0 + h * 0.15).count();
         let near_bottom = pts.iter().filter(|(_, y)| *y > y1 - h * 0.15).count();
-        Some(Recognized::Triangle { x: x0, y: y0, w, h, flip_v: near_bottom < near_top })
+        Ok(Recognized::Triangle { x: x0, y: y0, w, h, flip_v: near_bottom < near_top })
     } else {
-        None
+        Err("closed stroke does not look like an ellipse, rectangle or triangle: draw it with cleaner sides or curve")
     }
 }
 
