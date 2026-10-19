@@ -7317,3 +7317,22 @@ fn edit_select_doc_says_ids_must_be_on_one_slide() {
     let doc = find_command("edit.select").unwrap().params;
     assert!(doc.contains("must be on one slide") && doc.contains("refused"), "{doc}");
 }
+
+/// LL3: in Slide Master or layout view, slide.inspect lists the shapes being edited and says so.
+#[test]
+fn inspect_in_master_and_layout_view_lists_their_shapes() {
+    let mut s = session();
+    s.execute("view.slideMaster", &json!({"layout": 1})).unwrap();
+    let r = s.execute("slide.inspect", &json!({})).unwrap();
+    assert_eq!(r["editing"]["kind"], "layout", "{r}");
+    assert!(r["editing"]["name"].as_str().is_some_and(|n| !n.is_empty()), "{r}");
+    let n_layout = r["shapes"].as_array().unwrap().len();
+    assert!(n_layout > 0, "the layout's placeholders are listed: {r}");
+    s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
+    let r = s.execute("slide.inspect", &json!({})).unwrap();
+    assert_eq!(r["editing"]["kind"], "master", "{r}");
+    assert!(!r["shapes"].as_array().unwrap().is_empty(), "{r}");
+    s.execute("view.closeMaster", &json!({})).unwrap();
+    let r = s.execute("slide.inspect", &json!({})).unwrap();
+    assert!(r.get("editing").is_none(), "{r}");
+}

@@ -10,7 +10,7 @@ use crate::{Result, Session};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; selection; size; theme", has_doc, document),
-        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes with ids, kinds, boxes, text, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
+        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, fills, and when present textColor (a scheme colour as its slot name, else hex), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
@@ -225,7 +225,36 @@ fn slide(s: &mut Session, p: &Value) -> Result<Value> {
     let i = super::opt_usize_param(p, "index", "slide.inspect")?.unwrap_or(st.selection.slide);
     let sl = st.doc.slides.get(i).ok_or_else(|| super::no_slide("slide.inspect", i, st.doc.slides.len()))?;
     let ctx = Ctx::for_slide(&st.doc, sl);
-    let shapes: Vec<Value> = sl.shapes.iter().map(|sh| shape_summary(ctx.as_ref(), sh, 0)).collect();
+    let mut shapes: Vec<Value> = sl.shapes.iter().map(|sh| shape_summary(ctx.as_ref(), sh, 0)).collect();
+    // In Slide Master / layout view the shapes being edited are the master's or layout's, not
+    // the slide's behind the window.
+    let mut editing: Option<Value> = None;
+    if p.get("index").is_none_or(Value::is_null) {
+        let edited: Option<(&str, &str, Vec<Value>)> = match st.selection.target {
+            crate::Target::Master { master } => st.doc.masters.get(master).map(|m| {
+                let c = Ctx::for_master(&st.doc, m);
+                ("master", m.name.as_str(), m.shapes.iter().map(|sh| shape_summary(Some(&c), sh, 0)).collect())
+            }),
+            crate::Target::Layout { master, layout } => st.doc.masters.get(master).and_then(|m| {
+                let l = m.layouts.get(layout)?;
+                let c = Ctx::for_layout(&st.doc, m, l);
+                Some(("layout", l.name.as_str(), l.shapes.iter().map(|sh| shape_summary(Some(&c), sh, 0)).collect()))
+            }),
+            t @ (crate::Target::Handout | crate::Target::NotesMaster) => crate::page_master(&st.doc, t).map(|m| {
+                let c = Ctx::for_master(&st.doc, m);
+                (
+                    if matches!(t, crate::Target::Handout) { "handout" } else { "notesMaster" },
+                    m.name.as_str(),
+                    m.shapes.iter().map(|sh| shape_summary(Some(&c), sh, 0)).collect(),
+                )
+            }),
+            crate::Target::Slides => None,
+        };
+        if let Some((kind, name, list)) = edited {
+            editing = Some(json!({"kind": kind, "name": name}));
+            shapes = list;
+        }
+    }
     let bg = ctx.as_ref().map(|c| match resolve::background(c, Some(sl)) {
         (deckcraft_model::Fill::Solid { color }, ph) => json!(format!("#{}", c.color(&color, ph).hex())),
         (f, _) => serde_json::to_value(&f).ok().and_then(|v| v.get("kind").cloned()).unwrap_or_default(),
@@ -252,6 +281,9 @@ fn slide(s: &mut Session, p: &Value) -> Result<Value> {
         "comments": sl.comments.len(),
         "hidden": sl.hidden,
     });
+    if let (Some(e), Some(o)) = (editing, v.as_object_mut()) {
+        o.insert("editing".into(), e);
+    }
     // Empty notes are "", not a formatted body full of nulls.
     if sl.notes_text().is_empty()
         && let Some(o) = v.as_object_mut()
