@@ -7452,3 +7452,18 @@ fn a_theme_change_refreshes_zoom_thumbnails() {
     assert_eq!(media_count(&s), items);
     assert!(s.execute("zoom.refresh", &json!({"id": 999_999})).is_err());
 }
+
+#[test]
+fn shape_insert_takes_the_scheme_fill_object_shape_fill_takes() {
+    let mut s = session();
+    let fill = json!({"scheme": "accent2", "lumMod": 20000, "lumOff": 80000});
+    let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50], "fill": fill})).unwrap();
+    let id = deckcraft_model::ShapeId(r["id"].as_u64().unwrap() as u32);
+    let st = s.doc().unwrap();
+    let sh = st.doc.slides.iter().find_map(|sl| deckcraft_model::find_shape(&sl.shapes, id)).unwrap();
+    let Some(deckcraft_model::style::Fill::Solid { color }) = &sh.fill else { panic!("a solid fill: {:?}", sh.fill) };
+    assert_eq!(color.mods.len(), 2, "lumMod and lumOff kept");
+    // A string and `none` still work.
+    let r = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50], "fill": "none"})).unwrap();
+    assert!(r["id"].is_number());
+}

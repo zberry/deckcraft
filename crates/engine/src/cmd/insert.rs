@@ -18,7 +18,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Shapes",
             ["Insert", "Illustrations"],
             None,
-            "{preset: rect|roundRect|ellipse|triangle|rightArrow|star5|… (see shape.presets), rect: [x,y,w,h] pt, text?: string, fill?: color|none, line?: color|none, size?: pt (text), color?: text colour, bold?: bool, name?, adj?: [adjustment values 0-1], flip?: h|v|hv} → {id}",
+            "{preset: rect|roundRect|ellipse|triangle|rightArrow|star5|… (see shape.presets), rect: [x,y,w,h] pt, text?: string, fill?: color|none|{scheme, lumMod?, lumOff?: thousandths of a percent, 20000 = 20 %}, line?: color|none, size?: pt (text), color?: text colour, bold?: bool, name?, adj?: [adjustment values 0-1], flip?: h|v|hv} → {id}",
             has_slide,
             insert_shape
         ),
@@ -234,12 +234,13 @@ fn insert_shape(s: &mut Session, p: &Value) -> Result<Value> {
     let id = add_shape(s, "shape.insert", shape, true)?;
     // Its look in the same call, so a diagram box is one command rather than six (#298). The
     // inserted shape is selected, which is what format.* act on.
-    let colour_or_none = |c: &str| if c == "none" { json!({"id": id, "none": true}) } else { json!({"id": id, "color": c}) };
-    if let Some(c) = str_param(p, "fill") {
+    // `fill` takes whatever shape.fill's `color` takes, a scheme object included.
+    let colour_or_none = |c: &Value| if c.as_str() == Some("none") { json!({"id": id, "none": true}) } else { json!({"id": id, "color": c}) };
+    if let Some(c) = p.get("fill").filter(|c| c.is_string() || c.is_object()) {
         s.execute("shape.fill", &colour_or_none(c))?;
     }
     if let Some(c) = str_param(p, "line") {
-        s.execute("shape.line", &colour_or_none(c))?;
+        s.execute("shape.line", &colour_or_none(&json!(c)))?;
     }
     if !line_like {
         if let Some(size) = f64_param(p, "size") {

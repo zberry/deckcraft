@@ -90,7 +90,7 @@ Parameters:
   preset           rect|roundRect|ellipse|triangle|rightArrow|star5|… (see shape.presets)
   rect             [x,y,w,h] pt
   text, optional   string
-  fill, optional   color|none
+  fill, optional   color|none|{scheme, lumMod?, lumOff?: thousandths of a percent, 20000 = 20 %}
   line, optional   color|none
   size, optional   pt (text)
   color, optional  text colour
