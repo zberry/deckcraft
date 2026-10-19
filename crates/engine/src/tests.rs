@@ -6983,3 +6983,23 @@ fn master_insert_placeholder_takes_subtitle_date_footer_and_slide_number() {
     let again = s.execute("master.insertPlaceholder", &json!({"kind": "date"})).unwrap_err().to_string();
     assert!(again.contains("already has"), "{again}");
 }
+
+/// #300: in layout view Hide Background Graphics sets the layout's flag, not a slide's.
+#[test]
+fn hide_background_graphics_in_layout_view_sets_the_layout() {
+    let mut s = session();
+    s.execute("view.slideMaster", &json!({"layout": 1})).unwrap();
+    let flags = |s: &Session| {
+        let d = &s.doc().unwrap().doc;
+        (d.masters[0].layouts[1].show_master_shapes, d.slides.iter().map(|x| x.show_master_shapes).collect::<Vec<_>>())
+    };
+    let (l0, slides0) = flags(&s);
+    assert!(l0);
+    let r = s.execute("design.hideBackgroundGraphics", &json!({"hide": true})).unwrap();
+    assert_eq!(r["hidden"], true, "{r}");
+    assert_eq!(flags(&s), (false, slides0.clone()), "the layout flips, no slide changes");
+    s.execute("design.hideBackgroundGraphics", &json!({"hide": false})).unwrap();
+    assert_eq!(flags(&s), (true, slides0));
+    s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
+    assert!(s.execute("design.hideBackgroundGraphics", &json!({"hide": true})).is_err());
+}

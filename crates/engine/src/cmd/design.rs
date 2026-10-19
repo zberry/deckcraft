@@ -65,7 +65,15 @@ pub fn specs() -> Vec<CommandSpec> {
             has_slide,
             background
         ),
-        cmd!("design.hideBackgroundGraphics", "Hide Background Graphics", ["Format Background"], None, "{hide?: bool}", has_slide, hide_bg_graphics),
+        cmd!(
+            "design.hideBackgroundGraphics",
+            "Hide Background Graphics",
+            ["Format Background"],
+            None,
+            "{hide?: bool} (on a slide: that slide; in Slide Master view with a layout selected: that layout, so its slides stop showing the master's graphics; no slide changes)",
+            has_slide,
+            hide_bg_graphics
+        ),
         cmd!(
             "design.slideSize",
             "Slide Size",
@@ -870,6 +878,24 @@ fn apply_picture_props(pf: &mut deckcraft_model::style::PictureFill, pp: &Value)
 }
 
 fn hide_bg_graphics(s: &mut Session, p: &Value) -> Result<Value> {
+    // In Slide Master view the setting belongs to the layout being edited (its master shapes stop
+    // showing behind it and behind the slides that use it); no slide changes.
+    match s.doc()?.selection.target {
+        Target::Layout { master, layout } => {
+            let hide = s.edit(|doc, _| {
+                let l = doc.masters.get_mut(master).and_then(|m| Arc::make_mut(m).layouts.get_mut(layout));
+                let l = l.ok_or_else(|| bad("design.hideBackgroundGraphics", "no such layout"))?;
+                l.show_master_shapes = !bool_param(p, "hide").unwrap_or(l.show_master_shapes);
+                Ok(!l.show_master_shapes)
+            })?;
+            return Ok(json!({"hidden": hide, "layout": layout}));
+        }
+        Target::Master { .. } => {
+            return Err(bad("design.hideBackgroundGraphics", "select a layout in Slide Master view (the master's own graphics are its shapes)"));
+        }
+        Target::Handout | Target::NotesMaster => return Err(bad("design.hideBackgroundGraphics", "open a slide or a layout")),
+        Target::Slides => {}
+    }
     s.edit(|doc, sel| {
         if let Some(sl) = doc.slides.get_mut(sel.slide) {
             let sl = Arc::make_mut(sl);
