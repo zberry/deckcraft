@@ -136,7 +136,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "SmartArt",
             ["Insert", "Illustrations"],
             None,
-            "{kind: list|process|cycle|hierarchy|pyramid|matrix, items?: [text] (leading tabs = sub-points), nodes?: [{text, level}], rect?: [x, y, w, h] (default: the middle 80% of the slide)} → {id, rect}",
+            "{kind: list|process|cycle|hierarchy|pyramid|matrix, items?: [text] (leading tabs = sub-points), nodes?: [{text, level}], rect?: [x, y, w, h] (default: the middle 80% of the slide)} → {id, rect, ids: the shapes of the graphic}",
             has_slide,
             smart_art
         ),

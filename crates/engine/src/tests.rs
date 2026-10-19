@@ -5925,17 +5925,18 @@ fn text_replace_takes_a_scope_and_answers_the_slides() {
     s.execute("slide.notes", &json!({"text": "DeckCraft notes"})).unwrap();
     s.execute("slide.new", &json!({"layout": "titleOnly", "title": "DeckCraft again"})).unwrap();
     let r = s.execute("text.replace", &json!({"text": "DeckCraft", "with": "DC", "scope": "body"})).unwrap();
-    assert_eq!(r, json!({"replaced": 2, "slides": [1]}), "{r}");
+    assert_eq!((&r["replaced"], &r["slides"]), (&json!(2), &json!([1])), "{r}");
+    assert_eq!(r["shapes"].as_array().map(Vec::len), Some(2), "{r}");
     assert_eq!(s.execute("text.get", &json!({"id": title})).unwrap()["text"], "DeckCraft rocks", "titles are untouched by scope body");
     let r = s.execute("text.replace", &json!({"text": "DeckCraft", "with": "DC", "scope": "titles"})).unwrap();
-    assert_eq!(r, json!({"replaced": 2, "slides": [1, 2]}), "{r}");
+    assert_eq!((&r["replaced"], &r["slides"]), (&json!(2), &json!([1, 2])), "{r}");
     assert_eq!(s.doc().unwrap().doc.slides[1].notes_text(), "DeckCraft notes", "notes are untouched by scope titles");
     let r = s.execute("text.replace", &json!({"text": "DeckCraft", "with": "DC", "scope": "notes"})).unwrap();
-    assert_eq!(r, json!({"replaced": 1, "slides": [1]}), "{r}");
+    assert_eq!((&r["replaced"], &r["slides"]), (&json!(1), &json!([1])), "{r}");
     let e = s.execute("text.replace", &json!({"text": "DC", "with": "x", "scope": "footers"})).unwrap_err().to_string();
     assert!(e.contains("footers") && e.contains("body|titles|notes|all"), "{e}");
     let r = s.execute("text.replace", &json!({"text": "DC", "with": "DeckCraft"})).unwrap();
-    assert_eq!(r, json!({"replaced": 5, "slides": [1, 2]}), "the default is still everything: {r}");
+    assert_eq!((&r["replaced"], &r["slides"]), (&json!(5), &json!([1, 2])), "the default is still everything: {r}");
 }
 
 /// Y3: slide.inspect showed only `fill` per shape, so text colour, line colour and width, a
@@ -7195,4 +7196,28 @@ fn shape_merge_answers_the_result_rect() {
     let rect: Vec<f64> = r["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
     assert!((rect[0] - 10.0).abs() < 0.1 && (rect[2] - 150.0).abs() < 0.1 && (rect[3] - 50.0).abs() < 0.1, "{rect:?}");
     assert!(r["ids"].as_array().is_some_and(|a| !a.is_empty()));
+}
+
+#[test]
+fn smartart_media_theme_and_replace_answer_facts() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
+    let r = s.execute("insert.smartArt", &json!({"kind": "list", "items": ["a", "b", "c"]})).unwrap();
+    let gid = r["id"].as_u64().unwrap();
+    assert!(r["rect"].is_array(), "the old fields stay");
+    let kids = r["ids"].as_array().expect("child ids");
+    assert!(kids.len() >= 3, "{r}");
+    let r = s.execute("smartArt.toShapes", &json!({"id": gid})).unwrap();
+    assert_eq!(r["id"], json!(gid));
+    assert_eq!(r["ids"].as_array().map(Vec::len), Some(kids.len()), "{r}");
+
+    let r = s.execute("design.theme", &json!({"name": "Ember"})).unwrap();
+    assert_eq!(r["changed"], json!(["theme", "fonts"]), "{r}");
+    assert!(r["fonts"]["major"].is_string() && r["colors"].is_object(), "{r}");
+
+    let t = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 100, 50]})).unwrap()["id"].as_u64().unwrap();
+    s.execute("text.set", &json!({"id": t, "text": "cat and cat"})).unwrap();
+    let r = s.execute("text.replace", &json!({"text": "cat", "with": "dog"})).unwrap();
+    assert_eq!(r["replaced"], json!(2));
+    assert!(r["shapes"].as_array().is_some_and(|a| a.contains(&json!(t))), "{r}");
 }

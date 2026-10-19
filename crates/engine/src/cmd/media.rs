@@ -206,6 +206,17 @@ mod tests {
     }
 
     #[test]
+    fn media_options_answers_the_resulting_options() {
+        let mut s = Session::with_new();
+        let m = s.execute("insert.audio", &json!({"name": "tone.wav", "data": base64_encode(&wav())})).expect("insert")["id"].as_u64().expect("id");
+        let r = s.execute("media.options", &json!({"id": m, "autoplay": true, "volume": 0.5})).expect("options");
+        assert_eq!(r["changed"], json!(1));
+        assert_eq!(r["ids"], json!([m]));
+        assert_eq!(r["options"]["autoplay"], json!(true));
+        assert_eq!(r["options"]["volume"], json!(0.5));
+    }
+
+    #[test]
     fn insert_audio_probes_and_play_requests_reach_the_host() {
         let mut s = Session::with_new();
         let _ = s.execute("slide.new", &json!({"layout": "blank"}));

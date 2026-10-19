@@ -25,7 +25,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Replace",
             ["Home", "Editing"],
             None,
-            "{text, with, matchCase?, wholeWords?, scope?: body|titles|notes|all (body: text in non-title placeholders other than the footer, date and slide number, text boxes, shapes and tables; titles: title placeholders; notes: the notes; default all), at?: a text.find match (replace just that one; default: replace all)} → {replaced, slides: the indices of the slides that changed}",
+            "{text, with, matchCase?, wholeWords?, scope?: body|titles|notes|all (body: text in non-title placeholders other than the footer, date and slide number, text boxes, shapes and tables; titles: title placeholders; notes: the notes; default all), at?: a text.find match (replace just that one; default: replace all)} → {replaced, slides: the indices of the slides that changed, shapes: the ids of the shapes that changed}",
             has_doc,
             replace
         ),
@@ -197,9 +197,10 @@ fn replace(s: &mut Session, p: &Value) -> Result<Value> {
     });
     let at = at.transpose()?;
     let scope = Scope::from(p, "text.replace")?;
-    let (count, slides) = s.edit(|doc, _| {
+    let (count, slides, shapes) = s.edit(|doc, _| {
         let mut count = 0;
         let mut slides = vec![];
+        let mut shapes: Vec<u64> = vec![];
         for (i, slp) in doc.slides.iter_mut().enumerate() {
             if at.is_some_and(|a| a.0 != i) {
                 continue;
@@ -220,6 +221,11 @@ fn replace(s: &mut Session, p: &Value) -> Result<Value> {
                         }
                         splice(para, a, b, &with);
                         changed += 1;
+                        if let Some(id) = loc.shape
+                            && !shapes.contains(&id)
+                        {
+                            shapes.push(id);
+                        }
                     }
                 }
             });
@@ -232,9 +238,9 @@ fn replace(s: &mut Session, p: &Value) -> Result<Value> {
         if count == 0 {
             return Err(bad("text.replace", "no matches"));
         }
-        Ok((count, slides))
+        Ok((count, slides, shapes))
     })?;
-    Ok(json!({"replaced": count, "slides": slides}))
+    Ok(json!({"replaced": count, "slides": slides, "shapes": shapes}))
 }
 
 #[cfg(test)]

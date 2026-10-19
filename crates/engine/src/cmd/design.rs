@@ -20,7 +20,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Themes",
             ["Design", "Themes"],
             None,
-            "{name} (see design.themes) → the palette, as design.palette answers it",
+            "{name} (see design.themes) → the palette, as design.palette answers it (colors, fonts), plus changed: [\"theme\", \"fonts\"]",
             has_doc,
             theme
         ),
@@ -168,8 +168,13 @@ fn theme(s: &mut Session, p: &Value) -> Result<Value> {
         m.color_map = vec![];
         Ok(())
     })?;
-    // The palette the theme brought, as design.palette answers it.
-    palette(s, &json!({}))
+    // The palette the theme brought, as design.palette answers it (fonts included: a theme
+    // brings its own), and what the theme changed.
+    let mut answer = palette(s, &json!({}))?;
+    if let Value::Object(o) = &mut answer {
+        o.insert("changed".into(), json!(["theme", "fonts"]));
+    }
+    Ok(answer)
 }
 
 fn browse_theme(s: &mut Session, p: &Value) -> Result<Value> {

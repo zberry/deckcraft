@@ -181,7 +181,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Playback",
             ["Playback"],
             None,
-            "{autoplay?, loop?, rewind?, acrossSlides?, hide?, fullScreen?, volume?: 0..1, trimStart?: ms, trimEnd?: ms, fadeIn?: ms, fadeOut?: ms, ids?}",
+            "{autoplay?, loop?, rewind?, acrossSlides?, hide?, fullScreen?, volume?: 0..1, trimStart?: ms, trimEnd?: ms, fadeIn?: ms, fadeOut?: ms, ids?} → {changed, ids, options: the first clip's options now, same keys}",
             has_selection,
             media_options
         ),
@@ -1196,7 +1196,7 @@ fn picture_change(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn media_options(s: &mut Session, p: &Value) -> Result<Value> {
-    edit_shapes(s, p, "media.options", |sh| {
+    let (r, ids) = edit_shapes_ids(s, p, "media.options", |sh| {
         if let deckcraft_model::ShapeKind::Media(m) = &mut sh.kind {
             if let Some(v) = bool_param(p, "autoplay") {
                 m.autoplay = v;
@@ -1235,7 +1235,24 @@ fn media_options(s: &mut Session, p: &Value) -> Result<Value> {
         }
         Ok(())
     })?;
-    Ok(json!({}))
+    // The options as they stand now, of the first clip edited.
+    let st = s.doc()?;
+    let options = ids.iter().find_map(|i| match st.shape_anywhere(ShapeId(*i)) {
+        Some((sh, _)) => match &sh.kind {
+            deckcraft_model::ShapeKind::Media(m) => Some(json!({
+                "autoplay": m.autoplay, "loop": m.loop_play, "rewind": m.rewind, "acrossSlides": m.play_across_slides,
+                "hide": m.hide_while_not_playing, "fullScreen": m.full_screen, "volume": m.volume,
+                "trimStart": m.trim_start_ms, "trimEnd": m.trim_end_ms, "fadeIn": m.fade_in_ms, "fadeOut": m.fade_out_ms,
+            })),
+            _ => None,
+        },
+        None => None,
+    });
+    let mut answer = changed_ids((r, ids));
+    if let (Value::Object(o), Some(opts)) = (&mut answer, options) {
+        o.insert("options".into(), opts);
+    }
+    Ok(answer)
 }
 
 fn sites(s: &mut Session, p: &Value) -> Result<Value> {

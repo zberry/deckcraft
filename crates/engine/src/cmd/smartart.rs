@@ -230,7 +230,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Convert to Shapes",
             ["SmartArt Design", "Reset"],
             None,
-            "{id?} (the graphic becomes a plain group of its shapes; the outline is dropped)",
+            "{id?} (the graphic becomes a plain group of its shapes; the outline is dropped) → {id, ids: the shapes of the group}",
             has_selection,
             to_shapes
         ),
@@ -1832,8 +1832,9 @@ pub fn insert(s: &mut Session, kind: &str, mut nodes: Vec<DiagramNode>, rect: Op
     let area = rect
         .filter(|r| r.w > 0.0 && r.h > 0.0)
         .unwrap_or_else(|| Xfrm::new(size.width * 0.1, size.height * 0.28, size.width * 0.8, size.height * 0.6));
-    let id = s.edit(|doc, sel| {
+    let (id, kids) = s.edit(|doc, sel| {
         let children = regenerate("insert.smartArt", doc, &d, area)?;
+        let kids: Vec<u32> = children.iter().map(|c| c.id.0).collect();
         let id = ShapeId(doc.alloc_id().ok_or_else(|| bad("insert.smartArt", NO_ID_SPACE))?);
         let g = Shape {
             id,
@@ -1846,9 +1847,9 @@ pub fn insert(s: &mut Session, kind: &str, mut nodes: Vec<DiagramNode>, rect: Op
         crate::shapes_mut(doc, sel).ok_or_else(|| EngineError::Other("no slide".into()))?.push(g);
         sel.shapes = vec![id];
         sel.text = None;
-        Ok(id)
+        Ok((id, kids))
     })?;
-    Ok(json!({"id": id.0, "rect": rect_json(&area)}))
+    Ok(json!({"id": id.0, "rect": rect_json(&area), "ids": kids}))
 }
 
 fn nodes(s: &mut Session, p: &Value) -> Result<Value> {
@@ -2016,15 +2017,15 @@ fn to_text(s: &mut Session, p: &Value) -> Result<Value> {
 fn to_shapes(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "smartArt.toShapes";
     let gid = target_group(s, p, CMD)?;
-    s.edit(|doc, sel| {
+    let kids = s.edit(|doc, sel| {
         let shapes = crate::shapes_mut(doc, sel).ok_or_else(|| bad(CMD, "no slide"))?;
         let g = deckcraft_model::find_shape_mut(shapes, gid).ok_or_else(|| bad(CMD, "no such shape"))?;
         g.diagram = None;
         g.name = "Group".into();
         sel.shapes = vec![gid];
-        Ok(())
+        Ok(g.children().iter().map(|c| c.id.0).collect::<Vec<_>>())
     })?;
-    Ok(Value::Null)
+    Ok(json!({"id": gid.0, "ids": kids}))
 }
 
 /// The most common title and bullet font sizes in a diagram's shapes (20 and 14 pt when none).
