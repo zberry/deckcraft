@@ -7658,3 +7658,26 @@ fn slide_inspect_answers_a_tinted_scheme_colour_as_scheme_and_lum() {
     s.execute("shape.fill", &json!({"ids": [a], "color": "accent3"})).unwrap();
     assert_eq!(fill(&mut s), "accent3");
 }
+
+#[test]
+fn slide_reset_answers_what_it_reset_and_what_it_brought_back() {
+    let mut s = session();
+    let phs: Vec<u64> = s.doc().unwrap().current_slide().unwrap().shapes.iter().filter(|x| x.ph.is_some()).map(|x| x.id.0 as u64).collect();
+    assert_eq!(phs.len(), 2);
+    let (title, sub) = (phs[0], phs[1]);
+    s.execute("shape.move", &json!({"ids": [sub], "dx": 40, "dy": 10})).unwrap();
+    s.execute("edit.delete", &json!({"ids": [title]})).unwrap();
+    let r = s.execute("slide.reset", &json!({"index": 0})).unwrap();
+    let after: Vec<u64> = s.doc().unwrap().current_slide().unwrap().shapes.iter().filter(|x| x.ph.is_some()).map(|x| x.id.0 as u64).collect();
+    assert_eq!(after.len(), 2, "the deleted placeholder is back");
+    assert_eq!(r["reset"], json!(after), "{r}");
+    let added = r["added"].as_array().unwrap();
+    assert_eq!(added.len(), 1, "{r}");
+    assert!(!phs.contains(&added[0].as_u64().unwrap()) || added[0] == json!(title), "{r}");
+    assert!(after.contains(&added[0].as_u64().unwrap()));
+    assert!(!added.contains(&json!(sub)), "the restyled placeholder was reset, not added: {r}");
+    assert!(s.doc().unwrap().current_slide().unwrap().shapes.iter().find(|x| x.id.0 as u64 == sub).unwrap().xfrm.is_none());
+    // Nothing missing: nothing added.
+    let r = s.execute("slide.reset", &json!({"index": 0})).unwrap();
+    assert_eq!(r["added"], json!([]), "{r}");
+}

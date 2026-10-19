@@ -52,7 +52,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Reset",
             ["Home", "Slides"],
             None,
-            "{index? (0-based)} → {reset: [ids of the placeholders put back to the layout]}",
+            "{index? (0-based)} → {reset: [ids of the placeholders put back to the layout], added: [ids of layout placeholders that had been deleted and are back]}",
             has_slide,
             reset
         ),
@@ -566,9 +566,12 @@ fn reset(s: &mut Session, p: &Value) -> Result<Value> {
     let i = index_of(s, p, "slide.reset")?;
     s.edit(|doc, sel| {
         let layout = doc.slides.get(i).map(|x| x.layout).unwrap_or_default();
+        let before: Vec<u32> = doc.slides.get(i).map(|x| x.shapes.iter().map(|sh| sh.id.0).collect()).unwrap_or_default();
         apply_layout(doc, i, layout)?;
+        let mut added = vec![];
         if let Some(sl) = doc.slides.get_mut(i) {
             let sl = Arc::make_mut(sl);
+            added = sl.shapes.iter().filter(|sh| sh.ph.is_some() && !before.contains(&sh.id.0)).map(|sh| sh.id.0).collect();
             sl.background = None;
             for sh in &mut sl.shapes {
                 if sh.ph.is_some() {
@@ -591,9 +594,10 @@ fn reset(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         sel.shapes.clear();
-        Ok(doc.slides.get(i).map(|x| x.shapes.iter().filter(|sh| sh.ph.is_some()).map(|sh| sh.id.0).collect::<Vec<_>>()).unwrap_or_default())
+        let ids = doc.slides.get(i).map(|x| x.shapes.iter().filter(|sh| sh.ph.is_some()).map(|sh| sh.id.0).collect::<Vec<_>>()).unwrap_or_default();
+        Ok((ids, added))
     })
-    .map(|ids| json!({"reset": ids}))
+    .map(|(ids, added)| json!({"reset": ids, "added": added}))
 }
 
 fn notes(s: &mut Session, p: &Value) -> Result<Value> {
