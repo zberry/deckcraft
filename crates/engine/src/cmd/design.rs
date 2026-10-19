@@ -39,7 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Colors",
             ["Design", "Variants"],
             None,
-            "{} opens Create New Theme Colors | {name} | {colors: {dk1|lt1|dk2|lt2|accent1..6|hlink|folHlink: #RRGGBB}}",
+            "{} opens Create New Theme Colors | {name} | {colors: {dk1|lt1|dk2|lt2|accent1..6|hlink|folHlink: #RRGGBB}} → the palette as design.palette answers it after the change",
             has_doc,
             colors
         ),
@@ -324,7 +324,7 @@ fn colors(s: &mut Session, p: &Value) -> Result<Value> {
     if name_v.is_none() && colors_v.is_none() {
         let sc = current_colors(s)?;
         s.ui_requests.push(crate::UiRequest::Dialog { id: "themeColors".into(), params: scheme_dialog_params(&sc) });
-        return ok();
+        return palette(s, p);
     }
     let given = match name_v {
         None => None,
@@ -341,7 +341,7 @@ fn colors(s: &mut Session, p: &Value) -> Result<Value> {
     let current = current_colors(s)?;
     let next = next_scheme(&current, given.as_deref(), slots.as_deref())?;
     if next == current {
-        return ok();
+        return palette(s, p);
     }
     s.edit(|doc, sel| {
         let mi = master_index(doc, sel);
@@ -349,7 +349,7 @@ fn colors(s: &mut Session, p: &Value) -> Result<Value> {
         m.theme.colors = next;
         Ok(())
     })?;
-    ok()
+    palette(s, p)
 }
 
 fn variant(s: &mut Session, p: &Value) -> Result<Value> {

@@ -119,7 +119,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Align Cell Text",
             ["Table Layout", "Alignment"],
             None,
-            "{anchor?: top|middle|bottom (vertical; top when neither anchor nor align is given), align?: left|center|right|justify (horizontal, applied to every paragraph of the cells), cells?, id?}",
+            "{anchor?: top|middle|bottom (vertical; top when neither anchor nor align is given), align?: left|center|right|justify (horizontal, applied to every paragraph of the cells), cells?, id?} → {id, cells: how many cells were aligned}",
             has_selection,
             cell_align
         ),
@@ -651,9 +651,12 @@ fn cell_align(s: &mut Session, p: &Value) -> Result<Value> {
         }),
     };
     let targets = target_cells(s, p)?;
-    with_table(s, p, "table.cellAlign", move |t| {
+    let count = std::cell::Cell::new(0usize);
+    let (_, id) = with_table_id(s, p, "table.cellAlign", |t| {
+        count.set(0);
         for (r, c) in targets(t) {
             if let Some(cell) = t.cell_mut(r, c) {
+                count.set(count.get() + 1);
                 if anchor.is_some() {
                     cell.anchor = anchor;
                 }
@@ -665,7 +668,8 @@ fn cell_align(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
         Ok(())
-    })
+    })?;
+    Ok(json!({"id": id.0, "cells": count.get()}))
 }
 
 fn distribute(s: &mut Session, p: &Value, rows: bool) -> Result<Value> {

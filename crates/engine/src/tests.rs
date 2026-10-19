@@ -7594,3 +7594,30 @@ fn format_align_on_a_master_title_changes_the_slide_titles() {
     s.execute("format.align", &json!({"align": "right"})).unwrap();
     assert_eq!(title_align(&s), Some(Align::Right));
 }
+
+#[test]
+fn copy_color_and_cell_align_answer_what_they_did() {
+    let mut s = session();
+    // edit.copy: the ids copied; a shape without text no longer answers nothing at all.
+    let id = s.execute("shape.insert", &json!({"preset": "ellipse", "rect": [10, 10, 50, 50]})).unwrap()["id"].as_u64().unwrap();
+    let c = s.execute("edit.copy", &json!({})).unwrap();
+    assert_eq!(c["ids"], json!([id]), "{c}");
+    assert!(c.get("slides").is_none(), "{c}");
+    let sid = s.doc().unwrap().current_slide().unwrap().id.0;
+    let c = s.execute("edit.copy", &json!({"scope": "slides"})).unwrap();
+    assert_eq!(c["slides"], json!([sid]), "{c}");
+    assert!(c["text"].is_string());
+    // design.colors: the palette after the change, as design.palette answers it.
+    let r = s.execute("design.colors", &json!({"colors": {"accent1": "#112233"}})).unwrap();
+    assert_eq!(r, s.execute("design.palette", &json!({})).unwrap());
+    assert_eq!(r["colors"]["accent1"], json!("#112233"));
+    let r = s.execute("design.colors", &json!({"name": "Harbor"})).unwrap();
+    assert_eq!(r, s.execute("design.palette", &json!({})).unwrap());
+    // table.cellAlign: the table and how many cells.
+    let t = table_at(&mut s, &[100.0, 100.0], json!([["a", "b"], ["c", "d"]]));
+    let r = s.execute("table.cellAlign", &json!({"id": t.0, "align": "center", "cells": [[0, 0], [1, 0]]})).unwrap();
+    assert_eq!(r, json!({"id": t.0, "cells": 2}));
+    let r = s.execute("table.cellAlign", &json!({"id": t.0, "anchor": "middle"})).unwrap();
+    assert_eq!(r["id"], json!(t.0));
+    assert!(r["cells"].as_u64().unwrap() >= 1, "{r}");
+}

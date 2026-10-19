@@ -107,7 +107,9 @@ Run it with: deckcraft-cli run --cmd 'shape.insert={…}'
         stdout(&cli(&["describe", "format.size"])),
         "format.size: Font Size, in Home ▸ Font.\n\nParameters:\n  size  pt\nActs on the selected text or shapes.\nNote: on a master placeholder in Slide Master view it sets the master text style, so every layout and slide that does not override it follows\n\nRun it with: deckcraft-cli run --cmd 'format.size={…}'\n"
     );
-    assert!(stdout(&cli(&["describe", "edit.copy"])).contains("Answers with {text, html?}.\n\nRun it with: deckcraft-cli run --cmd edit.copy\n"));
+    assert!(stdout(&cli(&["describe", "edit.copy"])).contains(
+        "Answers with {text, html?, ids: the copied shapes, slides?: the copied slides' ids}.\n\nRun it with: deckcraft-cli run --cmd edit.copy\n"
+    ));
     assert!(stdout(&cli(&["describe", "text.set"])).contains("Note: replaces the whole text, keeping the first run's formatting\n"));
     assert_eq!(
         stdout(&cli(&["describe", "shape.setDefault"])),

@@ -15,7 +15,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(noundo "edit.undo", "Undo", ["Edit"], Some("Cmd+Z"), "{} → {label, slide: index}", can_undo, undo),
         cmd!(noundo "edit.redo", "Redo", ["Edit"], Some("Cmd+Y"), "{} → {label, slide: index}", can_redo, redo),
         cmd!("edit.cut", "Cut", ["Home", "Clipboard"], Some("Cmd+X"), "{scope?: slides} → {text, html?}", has_doc, cut),
-        cmd!(noundo "edit.copy", "Copy", ["Home", "Clipboard"], Some("Cmd+C"), "{scope?: slides} → {text, html?}", has_doc, copy),
+        cmd!(noundo "edit.copy", "Copy", ["Home", "Clipboard"], Some("Cmd+C"), "{scope?: slides} → {text, html?, ids: the copied shapes, slides?: the copied slides' ids}", has_doc, copy),
         cmd!(
             "edit.paste",
             "Paste",
@@ -156,7 +156,17 @@ fn copy(s: &mut Session, p: &Value) -> Result<Value> {
     let caret = copying_caret(s);
     let t = copy_inner(s, p)?;
     let html = if caret { String::new() } else { copied_html(s) };
-    Ok(json!({"text": t, "html": html}))
+    let mut out = json!({"text": t, "html": html});
+    if !caret {
+        // What went on the clipboard, so a copy of shapes without text still answers something.
+        if s.clipboard.slides.is_empty() {
+            out["ids"] = json!(s.clipboard.shapes.iter().map(|x| x.id.0).collect::<Vec<_>>());
+        } else {
+            out["ids"] = json!([]);
+            out["slides"] = json!(s.clipboard.slides.iter().map(|x| x.id.0).collect::<Vec<_>>());
+        }
+    }
+    Ok(out)
 }
 
 /// HTML for what was just copied, when it is text (a selection, or the text on the copied shapes).
