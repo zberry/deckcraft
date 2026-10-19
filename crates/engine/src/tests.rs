@@ -6925,3 +6925,30 @@ fn format_language_all_sets_every_run_in_the_deck_including_notes() {
     assert!(runs >= 3, "{runs}");
     assert!(s.execute("format.language", &json!({"all": true})).is_err(), "all alone sets nothing");
 }
+
+/// HH2: Font Size / Bold on the master title (Slide Master view) edits the master's title text
+/// style, so every slide whose layout doesn't override it follows, as in PowerPoint.
+#[test]
+fn format_on_a_master_title_changes_the_slide_titles() {
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "titleAndContent", "title": "Hello"})).unwrap();
+    let slide = s.doc().unwrap().selection.slide;
+    let title_size = |s: &Session| {
+        let st = s.doc().unwrap();
+        let sl = st.doc.slides.get(slide).unwrap();
+        let sh = sl.shapes.iter().find(|x| x.ph_type() == Some(deckcraft_model::PhType::Title)).unwrap();
+        let ctx = deckcraft_model::resolve::Ctx::for_slide(&st.doc, sl).unwrap();
+        let ls = deckcraft_model::resolve::level_style(&ctx, sh, 0);
+        (ls.run.size, ls.run.bold)
+    };
+    assert_eq!(title_size(&s).0, Some(44.0));
+    s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
+    let id = s.doc().unwrap().doc.masters[0].shapes.iter().find(|x| x.ph_type() == Some(deckcraft_model::PhType::Title)).unwrap().id.0;
+    s.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    let r = s.execute("format.size", &json!({"size": 30})).unwrap();
+    assert_eq!(r, 1, "{r}");
+    s.execute("format.bold", &json!({"on": true})).unwrap();
+    assert_eq!(title_size(&s), (Some(30.0), Some(true)));
+    let doc = command_specs().iter().find(|c| c.id == "format.size").unwrap().params;
+    assert!(doc.contains("master"), "{doc}");
+}

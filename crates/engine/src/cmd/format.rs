@@ -75,7 +75,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Font Size",
             ["Home", "Font"],
             None,
-            "{size: pt, ids?: [shape ids] (default: the selection)}",
+            "{size: pt, ids?: [shape ids] (default: the selection)} (on a master placeholder in Slide Master view it sets the master text style, so every layout and slide that does not override it follows)",
             has_text_or_shapes,
             |s, p| on_named(s, p, |s| size(s, p))
         ),

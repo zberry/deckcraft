@@ -1296,6 +1296,11 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
     let st = s.doc()?;
     if let Some(t) = st.selection.text.clone() {
         let (a, b) = format_range(st, &t);
+        let levels: Vec<u8> = match body_of(st, &t) {
+            Some(body) => body.paragraphs.iter().enumerate().filter(|(i, _)| (a.0..=b.0).contains(i)).map(|(_, p)| p.level).collect(),
+            None => vec![],
+        };
+        follow_in_master_style(s, &[t.shape], Some(&levels), f)?;
         let collapsed = a == b;
         edit_text(s, |body, _| {
             if collapsed {
@@ -1316,6 +1321,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
         return Err(bad("format", SELECT_TEXT_OR_SHAPE));
     }
     let cells = st.selection.cells;
+    follow_in_master_style(s, &ids, None, f)?;
     let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         match &mut sh.kind {
             ShapeKind::Table(t) => {
@@ -1341,6 +1347,66 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
         fit_text_box(s, id)?;
     }
     Ok(changed)
+}
+
+/// In Slide Master view, formatting a master placeholder's text edits the master's text style
+/// for it (title, body or other), which every layout and slide inherits unless it overrides it
+/// (HH2). `levels` are the outline levels formatted; `None` is the whole placeholder, every
+/// level the style defines. A caller outside Master view, or a shape that isn't a master
+/// placeholder, leaves the deck alone.
+fn follow_in_master_style(s: &mut Session, ids: &[ShapeId], levels: Option<&[u8]>, f: &(dyn Fn(&mut RunProps) + Send + Sync)) -> Result<()> {
+    use deckcraft_model::PhType;
+    let Ok(st) = s.doc() else { return Ok(()) };
+    let Target::Master { master } = st.selection.target else { return Ok(()) };
+    let Some(m) = st.doc.masters.get(master) else { return Ok(()) };
+    // (style group: 0 title, 1 body, 2 other) per formatted placeholder.
+    let groups: Vec<u8> = ids
+        .iter()
+        .filter_map(|id| m.shapes.iter().find(|x| x.id == *id))
+        .filter_map(|sh| {
+            sh.ph.as_ref()?;
+            Some(match sh.ph_type()? {
+                PhType::Title | PhType::CtrTitle => 0,
+                PhType::Body
+                | PhType::Obj
+                | PhType::SubTitle
+                | PhType::Table
+                | PhType::Chart
+                | PhType::Diagram
+                | PhType::Media
+                | PhType::Picture
+                | PhType::ClipArt => 1,
+                _ => 2,
+            })
+        })
+        .collect();
+    if groups.is_empty() {
+        return Ok(());
+    }
+    s.edit(|doc, _| {
+        let Some(m) = doc.masters.get_mut(master) else { return Ok(()) };
+        let m = Arc::make_mut(m);
+        for g in groups {
+            let style = match g {
+                0 => &mut m.title_style,
+                1 => &mut m.body_style,
+                _ => &mut m.other_style,
+            };
+            let lvls: Vec<u8> = match levels {
+                None => {
+                    let defined: Vec<u8> = (0u8..9).filter(|l| style.level(*l).is_some()).collect();
+                    if defined.is_empty() { vec![0] } else { defined }
+                }
+                Some(ls) => ls.to_vec(),
+            };
+            for lv in lvls {
+                let mut ls = style.level(lv).cloned().unwrap_or_default();
+                f(&mut ls.run);
+                style.set(lv, ls);
+            }
+        }
+        Ok(())
+    })
 }
 
 /// What `format_run` formats while editing: the selection, or for a bare caret the word it's in
