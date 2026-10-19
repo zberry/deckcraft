@@ -16,7 +16,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "New Slide",
             ["Home", "Slides"],
             Some("Cmd+Shift+N"),
-            "{layout?: layout name or kind (title, titleAndContent, sectionHeader, twoContent, comparison, titleOnly, blank, contentWithCaption, pictureWithCaption), at?: index, title?: text, body?: text}",
+            "{layout?: layout name or kind (title, titleAndContent, sectionHeader, twoContent, comparison, titleOnly, blank, contentWithCaption, pictureWithCaption), at?: index, title?: text, body?: text} → {index, id, placeholders: {title?, subtitle?, body?, pic?…: shape id}} (the new slide's placeholder ids by role, so text and format commands can address them without an inspect)",
             has_doc,
             new
         ),

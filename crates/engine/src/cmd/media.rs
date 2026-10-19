@@ -10,7 +10,7 @@ use crate::{EngineError, MediaStatus, Result, Session, UiRequest};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        cmd!(noundo "media.play", "Play", ["Playback", "Preview"], Some("Alt+P"), "{id?, from?: ms}", has_doc, play),
+        cmd!(noundo "media.play", "Play", ["Playback", "Preview"], Some("Alt+P"), "{id?, from?: ms} → {id} (playback happens in the app window; a headless session answers the same and plays nothing)", has_doc, play),
         cmd!(noundo "media.pause", "Pause", ["Playback", "Preview"], None, "{id?}", has_doc, pause),
         cmd!(noundo "media.toggle", "Play/Pause", [], None, "{id?}", has_doc, toggle),
         cmd!(noundo "media.stop", "Stop", ["Playback", "Preview"], None, "{id?}", has_doc, stop),

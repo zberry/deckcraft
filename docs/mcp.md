@@ -169,5 +169,6 @@ rect, text}`, `shape.connect {from, to, preset}`, `shape.freeform {points, close
 slide show as a PNG frame sequence, builds and transitions played, for a video encoder; the answer's
 `slides` maps frame numbers back to slides). `design.palette {}` answers the active theme's colours (`dk1`, `lt1`, `accent1`…`accent6`,
 `hlink`, `folHlink`, plus the resolved `text` and `background`) and fonts, so a diagram can use
-the scheme names `accent1`…`accent6` or those hex values instead of hard-coding colours.
+the scheme names `accent1`…`accent6` (with `lumMod` for a tint) or those hex values instead of hard-coding colours. Scheme names
+follow a later `design.theme` change, as in PowerPoint; a hex value stays what it was.
 `deckcraft-cli describe COMMAND` prints any command's parameters.
