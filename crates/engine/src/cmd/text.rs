@@ -1306,6 +1306,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
             None => vec![],
         };
         follow_in_master_style(s, &[t.shape], Some(&levels), f)?;
+        follow_in_layout_style(s, &[t.shape], Some(&levels), Some(f), None)?;
         let collapsed = a == b;
         edit_text(s, |body, _| {
             if collapsed {
@@ -1327,6 +1328,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
     }
     let cells = st.selection.cells;
     follow_in_master_style(s, &ids, None, f)?;
+    follow_in_layout_style(s, &ids, None, Some(f), None)?;
     let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         match &mut sh.kind {
             ShapeKind::Table(t) => {
@@ -1414,6 +1416,57 @@ fn follow_in_master_style(s: &mut Session, ids: &[ShapeId], levels: Option<&[u8]
     })
 }
 
+/// In Slide Master view with a layout selected, formatting one of the layout's placeholders
+/// edits that placeholder's own list style, which the slides on the layout inherit (slide →
+/// layout placeholder → master) unless they override it (UU2). `levels` are the outline levels
+/// formatted; `None` is the whole placeholder, every level its list style defines (else level 0).
+/// Either a run change or a paragraph change is applied. Anything else leaves the deck alone.
+fn follow_in_layout_style(
+    s: &mut Session,
+    ids: &[ShapeId],
+    levels: Option<&[u8]>,
+    run_f: Option<&(dyn Fn(&mut RunProps) + Send + Sync)>,
+    para_f: Option<&(dyn Fn(&mut deckcraft_model::text::Paragraph) + Send + Sync)>,
+) -> Result<()> {
+    let Ok(st) = s.doc() else { return Ok(()) };
+    let Target::Layout { master, layout } = st.selection.target else { return Ok(()) };
+    let Some(l) = st.doc.masters.get(master).and_then(|m| m.layouts.get(layout)) else { return Ok(()) };
+    let targets: Vec<ShapeId> = ids.iter().copied().filter(|id| l.shapes.iter().any(|x| x.id == *id && x.ph.is_some())).collect();
+    if targets.is_empty() {
+        return Ok(());
+    }
+    s.edit(|doc, _| {
+        let Some(m) = doc.masters.get_mut(master) else { return Ok(()) };
+        let m = Arc::make_mut(m);
+        let Some(l) = m.layouts.get_mut(layout) else { return Ok(()) };
+        for sh in l.shapes.iter_mut().filter(|x| targets.contains(&x.id)) {
+            let body = sh.text.get_or_insert_with(TextBody::default);
+            let style = &mut body.list_style;
+            let lvls: Vec<u8> = match levels {
+                None => {
+                    let defined: Vec<u8> = (0u8..9).filter(|lv| style.level(*lv).is_some()).collect();
+                    if defined.is_empty() { vec![0] } else { defined }
+                }
+                Some([]) => vec![0],
+                Some(ls) => ls.to_vec(),
+            };
+            for lv in lvls {
+                let mut ls = style.level(lv).cloned().unwrap_or_default();
+                if let Some(f) = run_f {
+                    f(&mut ls.run);
+                }
+                if let Some(f) = para_f {
+                    let mut p = deckcraft_model::text::Paragraph { props: ls.para.clone(), ..Default::default() };
+                    f(&mut p);
+                    ls.para = p.props;
+                }
+                style.set(lv, ls);
+            }
+        }
+        Ok(())
+    })
+}
+
 /// What `format_run` formats while editing: the selection, or for a bare caret the word it's in
 /// (without its trailing space). Empty when the caret is at a word boundary. Insert Hyperlink
 /// edits this same span, so the dialog reads it too.
@@ -1466,6 +1519,11 @@ pub(crate) fn format_para(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
     let st = s.doc()?;
     if let Some(t) = st.selection.text.clone() {
         let (a, b) = t.ordered();
+        let levels: Vec<u8> = match body_of(st, &t) {
+            Some(body) => (a.0..=b.0).filter_map(|i| body.paragraphs.get(i)).map(|p| p.level).collect(),
+            None => vec![],
+        };
+        follow_in_layout_style(s, &[t.shape], Some(&levels), None, Some(f))?;
         edit_text(s, |body, _| {
             if body.paragraphs.is_empty() {
                 body.paragraphs.push(Default::default());
@@ -1484,6 +1542,7 @@ pub(crate) fn format_para(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
         return Err(bad("format", SELECT_TEXT_OR_SHAPE));
     }
     let cells = st.selection.cells;
+    follow_in_layout_style(s, &ids, None, None, Some(f))?;
     let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         match &mut sh.kind {
             ShapeKind::Table(t) => {

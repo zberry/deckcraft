@@ -7495,3 +7495,55 @@ fn slide_inspect_gives_group_children_fill_and_text_colour() {
     assert_eq!(kids[0]["textColor"], "#00FF00", "{g}");
     assert_eq!(kids[1]["fill"], "#0000FF", "{g}");
 }
+
+/// UU2: Font Size / Bold / Align on a layout's title placeholder (Slide Master view, layout
+/// selected) reach the slides that use the layout (slide → layout placeholder → master), and a
+/// slide's own size still wins.
+#[test]
+fn format_on_a_layout_title_changes_the_slide_titles() {
+    use deckcraft_model::{PhType, resolve, text::Align};
+    let mut s = session();
+    s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
+    let r = s.execute("master.insertLayout", &json!({"name": "Section Break"})).unwrap();
+    let layout_id = r["id"].as_u64().unwrap();
+    let lid = {
+        let st = s.doc().unwrap();
+        let target = st.selection.target;
+        match target {
+            crate::Target::Layout { master, layout } => {
+                st.doc.masters[master].layouts[layout].shapes.iter().find(|x| x.ph_type() == Some(PhType::Title)).unwrap().id.0
+            }
+            t => panic!("{t:?}"),
+        }
+    };
+    s.execute("edit.select", &json!({"ids": [lid]})).unwrap();
+    assert_eq!(s.execute("format.size", &json!({"size": 66})).unwrap(), 1);
+    s.execute("format.bold", &json!({"on": true})).unwrap();
+    s.execute("format.align", &json!({"align": "center"})).unwrap();
+    s.execute("view.closeMaster", &json!({})).ok();
+    s.execute("slide.new", &json!({"layout": layout_id, "title": "Hello"})).unwrap();
+    s.execute("slide.new", &json!({"layout": layout_id, "title": "Own"})).unwrap();
+    let eff = |s: &Session, slide: usize| {
+        let st = s.doc().unwrap();
+        let sl = st.doc.slides.get(slide).unwrap();
+        let sh = sl.shapes.iter().find(|x| x.ph_type() == Some(PhType::Title)).unwrap();
+        let ctx = resolve::Ctx::for_slide(&st.doc, sl).unwrap();
+        let ls = resolve::level_style(&ctx, sh, 0);
+        (ls.run.size, ls.run.bold, ls.para.align)
+    };
+    assert_eq!(eff(&s, 1), (Some(66.0), Some(true), Some(Align::Center)));
+    // A slide that sets its own size keeps it.
+    let id = {
+        let st = s.doc().unwrap();
+        st.doc.slides[2].shapes.iter().find(|x| x.ph_type() == Some(PhType::Title)).unwrap().id.0
+    };
+    s.execute("slide.select", &json!({"index": 2})).ok();
+    s.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    s.execute("format.size", &json!({"size": 20})).unwrap();
+    let st = s.doc().unwrap();
+    let sl = &st.doc.slides[2];
+    let sh = sl.shapes.iter().find(|x| x.ph_type() == Some(PhType::Title)).unwrap();
+    let ctx = resolve::Ctx::for_slide(&st.doc, sl).unwrap();
+    let para = &sh.text.as_ref().unwrap().paragraphs[0];
+    assert_eq!(resolve::run(&ctx, sh, para, &para.runs.first().map(|r| r.props.clone()).unwrap_or_default()).size, Some(20.0));
+}
