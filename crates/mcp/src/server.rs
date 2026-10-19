@@ -35,7 +35,7 @@ number. Diagram recipe (no \
 list_commands needed): shape.insert {preset: rect|roundRect|ellipse|diamond|chevron…, rect: [x,y,w,h], text, fill, \
 line, size, color, bold, name} → {id} makes one styled box; shape.connect {from, to, fromSite?, toSite?, preset?: \
 straightConnector1|bentConnector3} → {id} draws an arrow between two shapes on the current slide (a box's sites are \
-0 top, 1 left, 2 bottom, 3 right; glued connectors follow later moves); animation.add {ids, effect: fade|wipe|zoom|fly, \
+0 top, 1 left, 2 bottom, 3 right; glued connectors follow later moves; default sites follow the dominant axis between the boxes, so a vertical flow should pass fromSite 2 and toSite 0); animation.add {ids, effect: fade|wipe|zoom|fly, \
 start: onClick|withPrevious|afterPrevious, duration?: ms} → {indices} (one onClick per click step); slide.notes {text}; \
 transition.set {kind: fade|push|wipe|…, index?}; section.add {name, at: slide index}; design.headerFooter {slideNumber, \
 footer, footerText} once, early: slides added later inherit it; insert.table {rows, cols, rect, \

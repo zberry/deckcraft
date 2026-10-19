@@ -61,7 +61,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Notes",
             ["View"],
             None,
-            "{text | body: formatted notes (as in slide.inspect's notesBody), index? (0-based)} (text as typed: untouched notes keep their formatting)",
+            "{text | body: formatted notes (as in slide.inspect's notesBody), index? (0-based)} (text as typed: untouched notes keep their formatting) → {slide: the index, chars: the length of the notes now}",
             has_slide,
             notes
         ),
@@ -598,9 +598,9 @@ fn notes(s: &mut Session, p: &Value) -> Result<Value> {
                 None => deckcraft_model::edit::replace_text(notes, &text),
             }
         }
-        Ok(())
-    })?;
-    ok()
+        Ok(doc.slides.get(i).map_or(0, |sl| sl.notes_text().chars().count()))
+    })
+    .map(|chars| json!({"slide": i, "chars": chars}))
 }
 
 fn rename(s: &mut Session, p: &Value) -> Result<Value> {

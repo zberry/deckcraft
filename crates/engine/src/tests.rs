@@ -7269,3 +7269,10 @@ fn slide_move_answers_its_section_and_exports_name_the_hidden_slides_they_skip()
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn slide_notes_answers_slide_and_chars() {
+    let mut s = session();
+    let r = s.execute("slide.notes", &json!({"index": 0, "text": "Hello notes"})).unwrap();
+    assert_eq!(r, json!({"slide": 0, "chars": 11}));
+}
