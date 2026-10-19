@@ -10,7 +10,7 @@ use crate::{Result, Session};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; sections; customShows: [{name, slides: 0-based slide indices in show order}]; selection; size; theme", has_doc, document),
-        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fill and when present textColor (both: a scheme colour as its slot name, or {scheme, lumMod?, lumOff?} when tinted, else hex; a fill may also be \"none\" or a gradient/picture/pattern kind), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
+        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`, and `runs` resolved there too) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fill and when present textColor (both: a scheme colour as its slot name, or {scheme, lumMod?, lumOff?} when tinted, else hex; a fill may also be \"none\" or a gradient/picture/pattern kind), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
@@ -294,6 +294,26 @@ fn links(c: &Ctx, sh: &Shape) -> Vec<Value> {
     out
 }
 
+/// `shapes` summarised in `c`, each text shape with its `runs` when asked.
+fn summaries(c: &Ctx, shapes: &[Shape], runs: bool) -> Vec<Value> {
+    let mut out: Vec<Value> = shapes.iter().map(|sh| shape_summary(Some(c), sh, 0)).collect();
+    if runs {
+        add_runs(Some(c), shapes, &mut out);
+    }
+    out
+}
+
+/// `text: "runs"`: each text shape's effective runs, resolved in `ctx` (a slide, layout or master).
+fn add_runs(ctx: Option<&Ctx>, shapes: &[Shape], out: &mut [Value]) {
+    for (sh, v) in shapes.iter().zip(out.iter_mut()) {
+        if let (Some(c), Some(o)) = (ctx, v.as_object_mut())
+            && sh.text.as_ref().is_some_and(|t| !t.is_empty())
+        {
+            o.insert("runs".into(), Value::Array(runs_of(c, sh)));
+        }
+    }
+}
+
 fn slide(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.doc()?;
     let i = super::opt_usize_param(p, "index", "slide.inspect")?.unwrap_or(st.selection.slide);
@@ -309,14 +329,9 @@ fn slide(s: &mut Session, p: &Value) -> Result<Value> {
             o.insert("zoom".into(), z);
         }
     }
-    if matches!(p.get("text"), Some(Value::String(t)) if t == "runs") {
-        for (sh, v) in sl.shapes.iter().zip(shapes.iter_mut()) {
-            if let (Some(c), Some(o)) = (ctx.as_ref(), v.as_object_mut())
-                && sh.text.as_ref().is_some_and(|t| !t.is_empty())
-            {
-                o.insert("runs".into(), Value::Array(runs_of(c, sh)));
-            }
-        }
+    let want_runs = matches!(p.get("text"), Some(Value::String(t)) if t == "runs");
+    if want_runs {
+        add_runs(ctx.as_ref(), &sl.shapes, &mut shapes);
     } else if p.get("text").is_some_and(|t| !t.is_null()) {
         return Err(bad("slide.inspect", "`text` can only be \"runs\""));
     }
@@ -327,20 +342,16 @@ fn slide(s: &mut Session, p: &Value) -> Result<Value> {
         let edited: Option<(&str, &str, Vec<Value>)> = match st.selection.target {
             crate::Target::Master { master } => st.doc.masters.get(master).map(|m| {
                 let c = Ctx::for_master(&st.doc, m);
-                ("master", m.name.as_str(), m.shapes.iter().map(|sh| shape_summary(Some(&c), sh, 0)).collect())
+                ("master", m.name.as_str(), summaries(&c, &m.shapes, want_runs))
             }),
             crate::Target::Layout { master, layout } => st.doc.masters.get(master).and_then(|m| {
                 let l = m.layouts.get(layout)?;
                 let c = Ctx::for_layout(&st.doc, m, l);
-                Some(("layout", l.name.as_str(), l.shapes.iter().map(|sh| shape_summary(Some(&c), sh, 0)).collect()))
+                Some(("layout", l.name.as_str(), summaries(&c, &l.shapes, want_runs)))
             }),
             t @ (crate::Target::Handout | crate::Target::NotesMaster) => crate::page_master(&st.doc, t).map(|m| {
                 let c = Ctx::for_master(&st.doc, m);
-                (
-                    if matches!(t, crate::Target::Handout) { "handout" } else { "notesMaster" },
-                    m.name.as_str(),
-                    m.shapes.iter().map(|sh| shape_summary(Some(&c), sh, 0)).collect(),
-                )
+                (if matches!(t, crate::Target::Handout) { "handout" } else { "notesMaster" }, m.name.as_str(), summaries(&c, &m.shapes, want_runs))
             }),
             crate::Target::Slides => None,
         };

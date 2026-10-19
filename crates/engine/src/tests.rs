@@ -7788,3 +7788,26 @@ fn every_slide_stays_in_a_section_whatever_adds_it() {
     s.execute("slide.delete", &json!({"index": 1})).unwrap();
     assert_every_slide_in_a_section(&s, "slide.delete");
 }
+
+/// ZZ3: `slide.inspect {text: "runs"}` resolves the effective runs in Slide Master and layout
+/// view too, for the master's or layout's placeholders (resolved with that master or layout).
+#[test]
+fn text_runs_resolve_in_master_and_layout_views() {
+    let mut s = session();
+    s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
+    let sl = s.execute("slide.inspect", &json!({"text": "runs"})).unwrap();
+    assert_eq!(sl["editing"]["kind"], "master", "{sl}");
+    let shapes = sl["shapes"].as_array().unwrap();
+    let title =
+        shapes.iter().find(|x| x["placeholder"] == "title" && x.get("runs").is_some()).unwrap_or_else(|| panic!("a master title with runs: {sl}"));
+    assert!(title["runs"][0]["size"].as_f64().unwrap() > 18.0, "{title}");
+    assert!(title["runs"][0]["font"].as_str().is_some_and(|f| !f.is_empty() && !f.starts_with('+')), "{title}");
+    let plain = s.execute("slide.inspect", &json!({})).unwrap();
+    assert!(plain["shapes"].as_array().unwrap().iter().all(|x| x.get("runs").is_none()));
+    s.execute("view.closeMaster", &json!({})).unwrap();
+    s.execute("view.slideMaster", &json!({"master": 0, "layout": 0})).unwrap();
+    let sl = s.execute("slide.inspect", &json!({"text": "runs"})).unwrap();
+    assert_eq!(sl["editing"]["kind"], "layout", "{sl}");
+    let num = sl["shapes"].as_array().unwrap().iter().find(|x| x["placeholder"] == "sldNum").unwrap();
+    assert!(num["runs"][0]["size"].as_f64().is_some_and(|z| z > 0.0), "{sl}");
+}
