@@ -6900,3 +6900,28 @@ fn text_replace_body_scope_skips_footer_date_and_slide_number() {
     assert_eq!(r["replaced"], 1, "all still reaches the footer: {r}");
     assert_eq!(footer(&s), "Zed Corp");
 }
+
+#[test]
+fn format_language_all_sets_every_run_in_the_deck_including_notes() {
+    let mut s = session();
+    s.execute("insert.textBox", &json!({"text": "Colour", "rect": [50.0, 50.0, 300.0, 40.0]})).unwrap();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("insert.textBox", &json!({"text": "Favourite", "rect": [50.0, 50.0, 300.0, 40.0]})).unwrap();
+    s.execute("slide.notes", &json!({"index": 1, "text": "Speak up"})).unwrap();
+    s.execute("edit.deselect", &json!({})).unwrap();
+    s.execute("format.language", &json!({"lang": "en-GB", "all": true})).unwrap();
+    let st = s.doc().unwrap();
+    let mut runs = 0;
+    for sl in &st.doc.slides {
+        let mut bodies: Vec<&deckcraft_model::text::TextBody> = sl.shapes.iter().filter_map(|x| x.text.as_ref()).collect();
+        bodies.push(&sl.notes);
+        for b in bodies {
+            for r in b.paragraphs.iter().flat_map(|p| &p.runs) {
+                runs += 1;
+                assert_eq!(r.props.lang.as_deref(), Some("en-GB"), "{:?}", r.text);
+            }
+        }
+    }
+    assert!(runs >= 3, "{runs}");
+    assert!(s.execute("format.language", &json!({"all": true})).is_err(), "all alone sets nothing");
+}

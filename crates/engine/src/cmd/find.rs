@@ -34,7 +34,7 @@ pub fn specs() -> Vec<CommandSpec> {
 
 /// Where a text body lives on a slide.
 #[derive(Clone, Copy, PartialEq, Debug)]
-struct Loc {
+pub(super) struct Loc {
     shape: Option<u64>,
     cell: Option<(usize, usize)>,
 }
@@ -42,7 +42,7 @@ struct Loc {
 /// What kind of text a body is, for `text.replace`'s `scope`: a title placeholder's, the notes',
 /// or any other (body placeholders, text boxes, shapes, table cells).
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum Scope {
+pub(super) enum Scope {
     Titles,
     Body,
     Notes,
@@ -64,7 +64,7 @@ impl Scope {
 }
 
 /// Visit every text body on a slide: shapes depth-first (groups, table cells), then the notes.
-fn bodies(slide: &mut Slide, f: &mut dyn FnMut(Loc, Scope, &mut TextBody)) {
+pub(super) fn bodies(slide: &mut Slide, f: &mut dyn FnMut(Loc, Scope, &mut TextBody)) {
     fn rec(shapes: &mut [Shape], depth: usize, f: &mut dyn FnMut(Loc, Scope, &mut TextBody)) {
         if depth > 64 {
             return;

@@ -120,8 +120,8 @@ pub fn specs() -> Vec<CommandSpec> {
             "Language",
             ["Review", "Language"],
             None,
-            "{lang?, noProof?: bool, ids?: [shape ids] (default: the selection)} (proofing language of the selected text, and Do Not Check Spelling)",
-            has_text_or_shapes,
+            "{lang?, noProof?: bool, all?: true, ids?: [shape ids] (default: the selection)} (proofing language of the selected text, and Do Not Check Spelling; all: every run in the deck, notes included, whatever is selected)",
+            has_doc,
             |s, p| on_named(s, p, |s| language(s, p))
         ),
         cmd!(
@@ -637,14 +637,37 @@ fn language(s: &mut Session, p: &Value) -> Result<Value> {
     if lang.as_deref().is_some_and(|l| l.is_empty() || l.len() > 35 || !l.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')) {
         return Err(bad("format.language", "`lang` is a language tag such as en-US"));
     }
-    format_run(s, &move |r| {
+    let set = move |r: &mut RunProps| {
         if let Some(l) = &lang {
             r.lang = Some(l.clone());
         }
         if let Some(n) = no_proof {
             r.no_proof = n.then_some(true);
         }
-    })
+    };
+    if bool_param(p, "all") == Some(true) {
+        let n = s.edit(|doc, _| {
+            let mut n = 0usize;
+            for slp in &mut doc.slides {
+                let sl = std::sync::Arc::make_mut(slp);
+                super::find::bodies(sl, &mut |_, _, t| {
+                    for para in &mut t.paragraphs {
+                        for run in &mut para.runs {
+                            set(&mut run.props);
+                            n += 1;
+                        }
+                        set(&mut para.end_props);
+                    }
+                });
+            }
+            Ok(n)
+        })?;
+        return Ok(json!({"changed": n}));
+    }
+    if let Err(e) = has_text_or_shapes(s) {
+        return Err(crate::EngineError::Disabled("format.language".into(), e));
+    }
+    format_run(s, &set)
 }
 fn highlight(s: &mut Session, p: &Value) -> Result<Value> {
     on_named(s, p, |s| highlight_selected(s, p))
