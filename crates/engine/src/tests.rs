@@ -7811,3 +7811,29 @@ fn text_runs_resolve_in_master_and_layout_views() {
     let num = sl["shapes"].as_array().unwrap().iter().find(|x| x["placeholder"] == "sldNum").unwrap();
     assert!(num["runs"][0]["size"].as_f64().is_some_and(|z| z > 0.0), "{sl}");
 }
+
+/// ZZ2: `slide.inspect` answers a table's column widths, row heights and the cells' own borders,
+/// as `shape.inspect` has them.
+#[test]
+fn slide_inspect_table_has_columns_row_heights_and_borders() {
+    let mut s = session();
+    let id = s
+        .execute("insert.table", &json!({"rows": 2, "cols": 3, "rect": [10, 100, 300, 60], "data": [["a", "b", "c"], ["d", "e", "f"]]}))
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    s.execute("table.borders", &json!({"id": id, "which": "all", "color": "#FF0000", "width": 2, "cells": [[0, 1]]})).unwrap();
+    let r = s.execute("slide.inspect", &json!({})).unwrap();
+    let t = r["shapes"].as_array().unwrap().iter().find(|x| x["id"] == id).unwrap()["table"].clone();
+    assert_eq!(t["columns"].as_array().map(Vec::len), Some(3), "{t}");
+    assert!((t["columns"].as_array().unwrap().iter().filter_map(|w| w.as_f64()).sum::<f64>() - 300.0).abs() < 1.0, "{t}");
+    assert_eq!(t["rowHeights"].as_array().map(Vec::len), Some(2), "{t}");
+    let b = t["borders"].as_array().unwrap();
+    assert_eq!(b.len(), 4, "the cell and its three neighbours sharing an edge; the rest follow the style: {t}");
+    let b = [b.iter().find(|x| x["row"] == 0 && x["col"] == 1).unwrap_or_else(|| panic!("{t}"))];
+    let full = s.execute("shape.inspect", &json!({"id": id})).unwrap();
+    let own = &full["shape"]["kind"]["rows"][0]["cells"][1]["borders"][0];
+    assert_eq!((&b[0]["left"]["fill"], &b[0]["left"]["width"]), (&own["fill"], &own["width"]), "same Line as shape.inspect: {t} / {full}");
+    let doc = command_specs().iter().find(|c| c.id == "slide.inspect").unwrap().params;
+    assert!(doc.contains("columns") && doc.contains("rowHeights") && doc.contains("borders"), "{doc}");
+}

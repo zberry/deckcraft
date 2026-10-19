@@ -10,7 +10,7 @@ use crate::{Result, Session};
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(query "document.inspect", "Inspect Presentation", [], None, "{shapes?: \"brief\" (adds shapeList to each slide: its shapes' id, name, kind and the first words of their text)} → slides with titles, layouts, shape counts; sections; customShows: [{name, slides: 0-based slide indices in show order}]; selection; size; theme", has_doc, document),
-        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`, and `runs` resolved there too) with ids, kinds, boxes, text, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fill and when present textColor (both: a scheme colour as its slot name, or {scheme, lumMod?, lumOff?} when tinted, else hex; a fill may also be \"none\" or a gradient/picture/pattern kind), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
+        cmd!(query "slide.inspect", "Inspect Slide", [], None, "{index?, text?: \"runs\" (each text shape gains `runs: [{text, size, font, bold, italic, color}]`, the effective values the renderer uses, autofit scale applied), animations?: true (the full list; default a summary {count, clickSteps}, animation.get has the list)} → the slide's shapes (in Slide Master / layout view, those of the master or layout being edited, with `editing: {kind, name}`, and `runs` resolved there too) with ids, kinds, boxes, text, a table's `table: {rows, cols, style, cells, columns: [widths in pt], rowHeights: [pt], borders: [{row, col, left?, right?, top?, bottom?}] (only cells with their own borders, each as shape.inspect has it)}`, a zoom shape's `zoom: {kind: slide|section|summary, slide: target index, section?: name, returnToZoom}`, fill and when present textColor (both: a scheme colour as its slot name, or {scheme, lumMod?, lumOff?} when tinted, else hex; a fill may also be \"none\" or a gradient/picture/pattern kind), line {color, width}, a connector's from/to {id, site}, links [{text, url|slide}]; animations, transition, notes (text, and notesBody with its formatting)", has_doc, slide),
         cmd!(query "shape.inspect", "Inspect Shape", [], None, "{id} → {shape: full shape JSON, box: its effective box, slide: the index of the slide it is on} (any slide; moves nothing)", has_doc, shape),
         cmd!(query "commands.list", "List Commands", [], None, "{filter?: substring} → [{id, label, params, enabled}]", always, commands),
     ]
@@ -166,6 +166,11 @@ pub fn shape_summary(ctx: Option<&Ctx>, sh: &Shape, depth: usize) -> Value {
         match &sh.kind {
             ShapeKind::Table(t) => {
                 o.insert("table".into(), json!({"rows": t.n_rows(), "cols": t.n_cols(), "style": t.style, "cells": t.rows.iter().map(|r| r.cells.iter().map(|c| c.text.text()).collect::<Vec<_>>()).collect::<Vec<_>>()}));
+                if let Some(tb) = o.get_mut("table").and_then(Value::as_object_mut) {
+                    tb.insert("columns".into(), json!(t.cols.iter().map(|w| round(*w)).collect::<Vec<_>>()));
+                    tb.insert("rowHeights".into(), json!(t.rows.iter().map(|r| round(r.height)).collect::<Vec<_>>()));
+                    tb.insert("borders".into(), Value::Array(table_borders(t)));
+                }
             }
             ShapeKind::Chart(c) => {
                 o.insert("chart".into(), json!({"type": c.kind.label(), "title": c.title, "categories": c.categories, "series": c.series.iter().map(|s| json!({"name": s.name, "values": s.values})).collect::<Vec<_>>()}));
@@ -180,6 +185,29 @@ pub fn shape_summary(ctx: Option<&Ctx>, sh: &Shape, depth: usize) -> Value {
         }
     }
     v
+}
+
+/// The cells that carry their own borders, as `shape.inspect` serialises them: `[{row, col, left?,
+/// right?, top?, bottom?}]` (a border absent here comes from the table style).
+fn table_borders(t: &deckcraft_model::Table) -> Vec<Value> {
+    let mut out = vec![];
+    for (ri, r) in t.rows.iter().enumerate() {
+        for (ci, c) in r.cells.iter().enumerate() {
+            if c.borders.iter().all(Option::is_none) {
+                continue;
+            }
+            let mut o = serde_json::Map::new();
+            o.insert("row".into(), json!(ri));
+            o.insert("col".into(), json!(ci));
+            for (name, b) in ["left", "right", "top", "bottom"].into_iter().zip(c.borders.iter()) {
+                if let Some(b) = b {
+                    o.insert(name.into(), serde_json::to_value(b).unwrap_or_default());
+                }
+            }
+            out.push(Value::Object(o));
+        }
+    }
+    out
 }
 
 /// What a zoom shape (Insert ▸ Zoom) points at: `{kind, slide | section, returnToZoom}`; `slide` is
