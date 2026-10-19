@@ -4798,3 +4798,19 @@ fn table_insert_column_refuses_a_keep_width_that_is_not_a_bool() {
         assert!((t.width() - 840.0).abs() < 1e-6, "width {}", t.width());
     }
 }
+
+#[test]
+fn table_insert_column_extends_a_merge_that_spans_the_neighbour() {
+    let mut s = session();
+    let id = table_at(&mut s, &[100.0, 100.0, 100.0], json!([["title", "", ""], ["a", "b", "c"]]));
+    s.execute("table.merge", &json!({"id": id.0, "from": [0, 0], "to": [0, 2]})).unwrap();
+    s.execute("table.insertColumnRight", &json!({"id": id.0, "col": 2})).unwrap();
+    let t = table_of(&s, id);
+    assert_eq!(t.cell(0, 0).unwrap().grid_span, 4, "the title now spans the new column");
+    assert!(t.cell(0, 3).unwrap().h_merge);
+    assert_eq!(t.cell(1, 0).unwrap().grid_span, 1);
+    s.execute("table.insertColumnLeft", &json!({"id": id.0, "col": 0})).unwrap();
+    let t = table_of(&s, id);
+    assert_eq!(t.cell(0, 0).unwrap().grid_span, 5, "left of the first column too");
+    assert_eq!(t.cell(0, 0).unwrap().text.text(), "title");
+}
