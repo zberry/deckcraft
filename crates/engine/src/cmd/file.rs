@@ -22,7 +22,7 @@ pub fn specs() -> Vec<CommandSpec> {
             new
         ),
         cmd!(query "file.templates", "Starter Templates", [], None, "{} → {templates: [{name, summary, theme, slides}], sample: {name, summary, slides} (the built-in sample deck, reusable with slide.reuse {sample: true})}", always, templates),
-        cmd!(noundo "file.open", "Open…", ["File"], Some("Cmd+O"), "{path}", always, open),
+        cmd!(noundo "file.open", "Open…", ["File"], Some("Cmd+O"), "{path} → {document, slides, missingFonts, damagedMedia, lostSlides} (a path that is already open switches to that document instead of opening a second copy: {document, slides, alreadyOpen: true})", always, open),
         cmd!(
             noundo "file.adopt",
             "Open",
@@ -290,6 +290,13 @@ fn adopt_loaded(s: &mut Session, f: LoadedFile) -> Result<Value> {
 #[cfg(not(target_arch = "wasm32"))]
 fn open(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path").ok_or_else(|| bad("file.open", "missing `path`"))?;
+    // PowerPoint switches to the window that has the file instead of opening a second copy.
+    // The same file by another spelling (relative, `./`, through a link) counts as open too.
+    if let Some(i) = s.documents().iter().position(|d| d.path.as_deref().is_some_and(|dp| crate::io::same_file(dp, path))) {
+        s.set_active(i);
+        let slides = s.doc()?.doc.slides.len();
+        return Ok(json!({"document": i, "slides": slides, "alreadyOpen": true}));
+    }
     adopt_loaded(s, read_presentation_file(path)?)
 }
 

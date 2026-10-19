@@ -110,7 +110,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "open_presentation",
             "Open presentation",
-            "Open a .deckcraft or .pptx file by path.",
+            "Open a .deckcraft or .pptx file by path. A file that is already open is switched to, not opened again (the answer has `alreadyOpen: true`).",
             obj(json!({"path": string("File path")}), &["path"]),
             false,
         ),

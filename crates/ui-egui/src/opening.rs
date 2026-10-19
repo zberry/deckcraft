@@ -237,7 +237,9 @@ mod tests {
         assert!(app.open_from_system(std::slice::from_ref(&pptx)).is_empty());
         assert!(app.show.is_none());
         assert!(app.open_from_system(&[ppsx.clone(), pptx.clone()]).is_empty());
-        assert_eq!(app.session.documents().len(), 3);
+        // The .pptx is already open, so it is focused rather than opened twice (as PowerPoint does).
+        assert_eq!(app.session.documents().len(), 2);
+        assert_eq!(app.session.active_index(), Some(0), "the open .pptx is focused");
         assert!(app.show.is_none(), "the last file is a .pptx");
         std::fs::remove_file(&pptx).ok();
         std::fs::remove_file(&ppsx).ok();

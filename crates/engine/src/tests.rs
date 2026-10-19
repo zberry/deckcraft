@@ -7276,3 +7276,37 @@ fn slide_notes_answers_slide_and_chars() {
     let r = s.execute("slide.notes", &json!({"index": 0, "text": "Hello notes"})).unwrap();
     assert_eq!(r, json!({"slide": 0, "chars": 11}));
 }
+
+/// JJ5: opening a path that is already open switches to that document, as PowerPoint does.
+#[test]
+fn opening_an_open_path_focuses_the_existing_document() {
+    let path = std::env::temp_dir().join(format!("deckcraft-jj5-{}.deckcraft", std::process::id()));
+    let p = path.to_string_lossy().to_string();
+    let mut s = session();
+    s.execute("slide.new", &json!({})).unwrap();
+    s.execute("file.saveAs", &json!({"path": p})).unwrap();
+    s.execute("file.new", &json!({})).unwrap();
+    assert_eq!(s.documents().len(), 2);
+    assert_eq!(s.active_index(), Some(1));
+    let r = s.execute("file.open", &json!({"path": p})).unwrap();
+    assert_eq!(s.documents().len(), 2, "no second copy: {r}");
+    assert_eq!(s.active_index(), Some(0));
+    assert_eq!((r["document"].as_u64(), r["slides"].as_u64(), r["alreadyOpen"].as_bool()), (Some(0), Some(2), Some(true)), "{r}");
+    // The same file spelled another way (with `./`, or relative to the working folder) is the same document.
+    let dotted = path.parent().unwrap().join(".").join(path.file_name().unwrap());
+    let r = s.execute("file.open", &json!({"path": dotted.to_string_lossy()})).unwrap();
+    assert_eq!(r["alreadyOpen"], json!(true), "./ spelling: {r}");
+    let depth = std::env::current_dir().unwrap().components().count() - 1;
+    let relative = format!("{}{}", "../".repeat(depth), p.trim_start_matches('/'));
+    let r = s.execute("file.open", &json!({"path": relative})).unwrap();
+    assert_eq!(r["alreadyOpen"], json!(true), "relative spelling {relative}: {r}");
+    assert_eq!(s.documents().len(), 2, "still no second copy");
+    // A path that is not open still opens.
+    let other = std::env::temp_dir().join(format!("deckcraft-jj5b-{}.deckcraft", std::process::id()));
+    s.execute("file.saveAs", &json!({"path": other.to_string_lossy()})).unwrap();
+    s.execute("file.close", &json!({})).ok();
+    let r = s.execute("file.open", &json!({"path": other.to_string_lossy()})).unwrap();
+    assert!(r.get("alreadyOpen").is_none(), "{r}");
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&other);
+}
