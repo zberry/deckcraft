@@ -6952,3 +6952,34 @@ fn format_on_a_master_title_changes_the_slide_titles() {
     let doc = command_specs().iter().find(|c| c.id == "format.size").unwrap().params;
     assert!(doc.contains("master"), "{doc}");
 }
+
+/// #300: Slide Master view inserts subtitle, date, footer and slide-number placeholders too.
+#[test]
+fn master_insert_placeholder_takes_subtitle_date_footer_and_slide_number() {
+    use deckcraft_model::PhType;
+    let mut s = session();
+    s.execute("view.slideMaster", &json!({"layout": 5})).unwrap();
+    let kinds = |s: &Session| s.doc().unwrap().doc.masters[0].layouts[5].shapes.iter().filter_map(|x| x.ph_type()).collect::<Vec<_>>();
+    let gone: Vec<u32> = s.doc().unwrap().doc.masters[0].layouts[5]
+        .shapes
+        .iter()
+        .filter(|x| matches!(x.ph_type(), Some(PhType::Date | PhType::Footer | PhType::SlideNum)))
+        .map(|x| x.id.0)
+        .collect();
+    s.execute("edit.select", &json!({"ids": gone})).unwrap();
+    s.execute("edit.delete", &json!({})).unwrap();
+    assert!(!kinds(&s).contains(&PhType::Footer), "footers deleted");
+    let mut want = vec![];
+    for (k, ph) in [("subtitle", PhType::SubTitle), ("date", PhType::Date), ("footer", PhType::Footer), ("sldNum", PhType::SlideNum)] {
+        let had = kinds(&s).iter().filter(|x| **x == ph).count();
+        s.execute("master.insertPlaceholder", &json!({"kind": k})).unwrap();
+        let now = kinds(&s);
+        assert_eq!(now.iter().filter(|x| **x == ph).count(), had + 1, "{k}: {now:?}");
+        want.push(ph);
+    }
+    let l = &s.doc().unwrap().doc.masters[0].layouts[5];
+    let n = l.shapes.iter().find(|x| x.ph_type() == Some(PhType::SlideNum)).unwrap();
+    assert!(n.text.as_ref().unwrap().paragraphs[0].runs.iter().any(|r| matches!(r.kind, deckcraft_model::text::RunKind::Field { .. })));
+    let again = s.execute("master.insertPlaceholder", &json!({"kind": "date"})).unwrap_err().to_string();
+    assert!(again.contains("already has"), "{again}");
+}

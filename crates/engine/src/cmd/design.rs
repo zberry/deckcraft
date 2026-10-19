@@ -130,7 +130,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Insert Placeholder",
             ["Slide Master", "Master Layout"],
             None,
-            "{kind: content|text|picture|chart|table|media, rect?: [x,y,w,h]}",
+            "{kind: content|text|picture|chart|table|media|subtitle|date|footer|sldNum, rect?: [x,y,w,h]} (date, footer and sldNum are the layout's single date, footer and slide-number placeholders, at the master's place unless rect is given; a layout holds one of each)",
             has_doc,
             insert_placeholder
         ),
@@ -1444,20 +1444,56 @@ fn insert_placeholder(s: &mut Session, p: &Value) -> Result<Value> {
         "table" => PhType::Table,
         "media" => PhType::Media,
         "content" => PhType::Obj,
+        "subtitle" => PhType::SubTitle,
+        "date" => PhType::Date,
+        "footer" => PhType::Footer,
+        "sldNum" | "slideNumber" => PhType::SlideNum,
         other => {
-            return Err(bad("master.insertPlaceholder", format!("`kind` is one of content, text, picture, chart, table or media, not `{other}`")));
+            return Err(bad(
+                "master.insertPlaceholder",
+                format!("`kind` is one of content, text, picture, chart, table, media, subtitle, date, footer or sldNum, not `{other}`"),
+            ));
         }
     };
     if !matches!(s.doc()?.selection.target, Target::Layout { .. }) {
         return Err(bad("master.insertPlaceholder", "select a layout in Slide Master view"));
     }
     let size = s.doc()?.doc.slide_size;
-    let rect = rect_param(p, "rect").unwrap_or(deckcraft_geom::Xfrm::new(size.width * 0.25, size.height * 0.3, size.width * 0.5, size.height * 0.4));
-    let idx = s.doc()?.shapes().iter().filter_map(|x| x.ph.as_ref().map(|p| p.idx)).max().unwrap_or(0) + 1;
+    let footer_like = matches!(kind, PhType::Date | PhType::Footer | PhType::SlideNum);
+    if footer_like && s.doc()?.shapes().iter().any(|x| x.ph_type() == Some(kind)) {
+        return Err(bad("master.insertPlaceholder", "this layout already has that placeholder"));
+    }
+    // Date, footer and slide number sit where the master puts them, so they inherit its place.
+    let rect = rect_param(p, "rect")
+        .or_else(|| (!footer_like).then(|| deckcraft_geom::Xfrm::new(size.width * 0.25, size.height * 0.3, size.width * 0.5, size.height * 0.4)));
+    let idx = match kind {
+        PhType::Date => 10,
+        PhType::Footer => 11,
+        PhType::SlideNum => 12,
+        _ => s.doc()?.shapes().iter().filter_map(|x| x.ph.as_ref().map(|p| p.idx)).filter(|i| *i < 10).max().unwrap_or(0) + 1,
+    };
+    let mut text = TextBody::default();
+    if kind == PhType::SlideNum {
+        text.paragraphs = vec![deckcraft_model::text::Paragraph {
+            runs: vec![deckcraft_model::text::Run {
+                text: "‹#›".into(),
+                props: Default::default(),
+                kind: deckcraft_model::text::RunKind::Field { field: "slidenum".into() },
+            }],
+            ..Default::default()
+        }];
+    }
+    let name = match kind {
+        PhType::Date => "Date Placeholder",
+        PhType::Footer => "Footer Placeholder",
+        PhType::SlideNum => "Slide Number Placeholder",
+        _ => "",
+    };
     let shape = Shape {
-        xfrm: Some(rect),
+        name: name.into(),
+        xfrm: rect,
         ph: Some(deckcraft_model::Placeholder { kind, idx, ..Default::default() }),
-        text: Some(TextBody::default()),
+        text: Some(text),
         ..Default::default()
     };
     let id = super::insert::add_shape(s, "master.insertPlaceholder", shape, true)?;
