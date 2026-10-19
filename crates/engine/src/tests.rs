@@ -7547,3 +7547,26 @@ fn format_on_a_layout_title_changes_the_slide_titles() {
     let para = &sh.text.as_ref().unwrap().paragraphs[0];
     assert_eq!(resolve::run(&ctx, sh, para, &para.runs.first().map(|r| r.props.clone()).unwrap_or_default()).size, Some(20.0));
 }
+
+/// UU6: paragraph formatting (alignment) of the master title in Slide Master view edits the master's
+/// title text style, so the slides follow, as run formatting does.
+#[test]
+fn format_align_on_a_master_title_changes_the_slide_titles() {
+    use deckcraft_model::text::Align;
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "titleAndContent", "title": "Hello"})).unwrap();
+    let slide = s.doc().unwrap().selection.slide;
+    let title_align = |s: &Session| {
+        let st = s.doc().unwrap();
+        let sl = st.doc.slides.get(slide).unwrap();
+        let sh = sl.shapes.iter().find(|x| x.ph_type() == Some(deckcraft_model::PhType::Title)).unwrap();
+        let ctx = deckcraft_model::resolve::Ctx::for_slide(&st.doc, sl).unwrap();
+        deckcraft_model::resolve::level_style(&ctx, sh, 0).para.align
+    };
+    assert_ne!(title_align(&s), Some(Align::Right));
+    s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
+    let id = s.doc().unwrap().doc.masters[0].shapes.iter().find(|x| x.ph_type() == Some(deckcraft_model::PhType::Title)).unwrap().id.0;
+    s.execute("edit.select", &json!({"ids": [id]})).unwrap();
+    s.execute("format.align", &json!({"align": "right"})).unwrap();
+    assert_eq!(title_align(&s), Some(Align::Right));
+}

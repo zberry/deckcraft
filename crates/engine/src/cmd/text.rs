@@ -1305,7 +1305,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
             Some(body) => body.paragraphs.iter().enumerate().filter(|(i, _)| (a.0..=b.0).contains(i)).map(|(_, p)| p.level).collect(),
             None => vec![],
         };
-        follow_in_master_style(s, &[t.shape], Some(&levels), f)?;
+        follow_in_master_style(s, &[t.shape], Some(&levels), Some(f), None)?;
         follow_in_layout_style(s, &[t.shape], Some(&levels), Some(f), None)?;
         let collapsed = a == b;
         edit_text(s, |body, _| {
@@ -1327,7 +1327,7 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
         return Err(bad("format", SELECT_TEXT_OR_SHAPE));
     }
     let cells = st.selection.cells;
-    follow_in_master_style(s, &ids, None, f)?;
+    follow_in_master_style(s, &ids, None, Some(f), None)?;
     follow_in_layout_style(s, &ids, None, Some(f), None)?;
     let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         match &mut sh.kind {
@@ -1359,9 +1359,15 @@ pub(crate) fn format_run(s: &mut Session, f: &(dyn Fn(&mut RunProps) + Send + Sy
 /// In Slide Master view, formatting a master placeholder's text edits the master's text style
 /// for it (title, body or other), which every layout and slide inherits unless it overrides it
 /// (HH2). `levels` are the outline levels formatted; `None` is the whole placeholder, every
-/// level the style defines. A caller outside Master view, or a shape that isn't a master
+/// level the style defines. Either a run change or a paragraph change is applied. A caller outside Master view, or a shape that isn't a master
 /// placeholder, leaves the deck alone.
-fn follow_in_master_style(s: &mut Session, ids: &[ShapeId], levels: Option<&[u8]>, f: &(dyn Fn(&mut RunProps) + Send + Sync)) -> Result<()> {
+fn follow_in_master_style(
+    s: &mut Session,
+    ids: &[ShapeId],
+    levels: Option<&[u8]>,
+    run_f: Option<&(dyn Fn(&mut RunProps) + Send + Sync)>,
+    para_f: Option<&(dyn Fn(&mut deckcraft_model::text::Paragraph) + Send + Sync)>,
+) -> Result<()> {
     use deckcraft_model::PhType;
     let Ok(st) = s.doc() else { return Ok(()) };
     let Target::Master { master } = st.selection.target else { return Ok(()) };
@@ -1408,7 +1414,14 @@ fn follow_in_master_style(s: &mut Session, ids: &[ShapeId], levels: Option<&[u8]
             };
             for lv in lvls {
                 let mut ls = style.level(lv).cloned().unwrap_or_default();
-                f(&mut ls.run);
+                if let Some(f) = run_f {
+                    f(&mut ls.run);
+                }
+                if let Some(f) = para_f {
+                    let mut p = deckcraft_model::text::Paragraph { props: ls.para.clone(), ..Default::default() };
+                    f(&mut p);
+                    ls.para = p.props;
+                }
                 style.set(lv, ls);
             }
         }
@@ -1520,9 +1533,10 @@ pub(crate) fn format_para(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
     if let Some(t) = st.selection.text.clone() {
         let (a, b) = t.ordered();
         let levels: Vec<u8> = match body_of(st, &t) {
-            Some(body) => (a.0..=b.0).filter_map(|i| body.paragraphs.get(i)).map(|p| p.level).collect(),
+            Some(body) => body.paragraphs.iter().enumerate().filter(|(i, _)| (a.0..=b.0).contains(i)).map(|(_, p)| p.level).collect(),
             None => vec![],
         };
+        follow_in_master_style(s, &[t.shape], Some(&levels), None, Some(f))?;
         follow_in_layout_style(s, &[t.shape], Some(&levels), None, Some(f))?;
         edit_text(s, |body, _| {
             if body.paragraphs.is_empty() {
@@ -1542,6 +1556,7 @@ pub(crate) fn format_para(s: &mut Session, f: &(dyn Fn(&mut deckcraft_model::tex
         return Err(bad("format", SELECT_TEXT_OR_SHAPE));
     }
     let cells = st.selection.cells;
+    follow_in_master_style(s, &ids, None, None, Some(f))?;
     follow_in_layout_style(s, &ids, None, None, Some(f))?;
     let changed = edit_shapes(s, &json!({"ids": ids}), "format", |sh| {
         match &mut sh.kind {
