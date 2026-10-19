@@ -17,15 +17,92 @@ use super::*;
 use crate::{Result, Session};
 
 pub fn specs() -> Vec<CommandSpec> {
-    vec![cmd!(
-        "insert.zoom",
-        "Zoom",
-        ["Insert", "Links"],
-        None,
-        "{kind?: slide|section|summary (default slide), slides?: [index] (slide and summary zooms), sections?: [index] (section zoom), returnToZoom?: bool (default: on for section and summary, off for slide)}",
-        has_slide,
-        zoom
-    )]
+    vec![
+        cmd!(
+            "zoom.refresh",
+            "Refresh Zoom",
+            ["Insert", "Links"],
+            None,
+            "{id?: a zoom shape (default every zoom in the presentation)} → {refreshed: [ids]}: re-renders each zoom's picture from its target slide as the slide is now (a zoom preview is live in PowerPoint; design.theme does this itself)",
+            has_doc,
+            refresh
+        ),
+        cmd!(
+            "insert.zoom",
+            "Zoom",
+            ["Insert", "Links"],
+            None,
+            "{kind?: slide|section|summary (default slide), slides?: [index] (slide and summary zooms), sections?: [index] (section zoom), returnToZoom?: bool (default: on for section and summary, off for slide)}",
+            has_slide,
+            zoom
+        ),
+    ]
+}
+
+/// The width of a zoom's captured picture, in px.
+const THUMB_WIDTH: f64 = 480.0;
+
+fn zoom_target(doc: &deckcraft_model::Presentation, sh: &Shape) -> Option<usize> {
+    if !matches!(sh.kind, ShapeKind::Picture { .. }) || !["Summary Zoom ", "Section Zoom ", "Slide Zoom "].iter().any(|k| sh.name.starts_with(k)) {
+        return None;
+    }
+    match &sh.click.as_ref()?.action {
+        Action::Slide { slide } => doc.slide_index(*slide),
+        _ => None,
+    }
+}
+
+/// Re-render the picture of every zoom (or just `only`) from its target slide as it is now, in
+/// `doc`. Answers the ids refreshed.
+pub(crate) fn refresh_in(doc: &mut deckcraft_model::Presentation, only: Option<ShapeId>) -> Vec<ShapeId> {
+    let scale = (THUMB_WIDTH / doc.slide_size.width.max(1.0)).clamp(0.05, 4.0);
+    let mut jobs: Vec<(usize, ShapeId, usize)> = vec![];
+    for (si, sl) in doc.slides.iter().enumerate() {
+        deckcraft_model::walk(&sl.shapes, &mut |sh, _| {
+            if only.is_none_or(|o| o == sh.id)
+                && let Some(t) = zoom_target(doc, sh)
+            {
+                jobs.push((si, sh.id, t));
+            }
+        });
+    }
+    let mut done = vec![];
+    // Thumbnails the refreshed zooms no longer show.
+    let mut superseded: Vec<deckcraft_model::MediaId> = vec![];
+    for (si, id, target) in jobs {
+        let (png, _, _) = super::file::render_png(doc, target, scale, false);
+        let Some(media) = doc.add_media(&format!("zoom-{}.png", target + 1), "image/png", png) else { continue };
+        let Some(sl) = doc.slides.get_mut(si) else { continue };
+        let sl = Arc::make_mut(sl);
+        if let Some(sh) = deckcraft_model::find_shape_mut(&mut sl.shapes, id)
+            && let ShapeKind::Picture { fill } = &mut sh.kind
+        {
+            if fill.media != media {
+                superseded.push(fill.media);
+            }
+            fill.media = media;
+            done.push(id);
+        }
+    }
+    // Drop a superseded thumbnail nothing else shows, or each refresh would leave an orphaned
+    // PNG in the saved file.
+    if !superseded.is_empty() {
+        let used: std::collections::HashSet<_> = crate::media_refs::presentation_media(doc).into_iter().collect();
+        doc.media.retain(|m| !superseded.contains(&m.id) || used.contains(&m.id));
+    }
+    done
+}
+
+fn refresh(s: &mut Session, p: &Value) -> Result<Value> {
+    let only = id_param(p, "id", "zoom.refresh")?;
+    if let Some(id) = only {
+        let st = s.doc()?;
+        let ok = st.doc.slides.iter().any(|sl| deckcraft_model::find_shape(&sl.shapes, id).is_some_and(|sh| zoom_target(&st.doc, sh).is_some()));
+        if !ok {
+            return Err(bad("zoom.refresh", format!("shape {} is not a zoom", id.0)));
+        }
+    }
+    s.edit(|doc, _| Ok(refresh_in(doc, only))).map(|ids| json!({"refreshed": ids}))
 }
 
 /// One zoom tile: the slide it shows and jumps to, and the slide after which the show returns.
@@ -113,7 +190,7 @@ fn zoom(s: &mut Session, p: &Value) -> Result<Value> {
     let back = bool_or(p, "returnToZoom", kind != "slide");
     let size = doc.slide_size;
     // Pictures of the targets, about 480 px wide.
-    let scale = (480.0 / size.width.max(1.0)).clamp(0.05, 4.0);
+    let scale = (THUMB_WIDTH / size.width.max(1.0)).clamp(0.05, 4.0);
     let pictures: Vec<(Vec<u8>, String)> = targets
         .iter()
         .map(|t| {

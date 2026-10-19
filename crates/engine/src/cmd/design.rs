@@ -166,6 +166,8 @@ fn theme(s: &mut Session, p: &Value) -> Result<Value> {
         m.theme = t.clone();
         m.name = t.name.clone();
         m.color_map = vec![];
+        // A zoom's preview shows its target slide as it now looks, in the new theme.
+        super::zoom::refresh_in(doc, None);
         Ok(())
     })?;
     // The palette the theme brought, as design.palette answers it (fonts included: a theme

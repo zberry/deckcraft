@@ -7418,3 +7418,37 @@ fn export_all_into_a_folder_writes_slide_nn_files() {
     assert!(doc.contains("slide-01.png"), "{doc}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// OO1: a zoom's picture is its target slide as it is now: a theme change re-renders it, and
+/// `zoom.refresh` does the same on demand.
+#[test]
+fn a_theme_change_refreshes_zoom_thumbnails() {
+    use deckcraft_model::ShapeKind;
+    let mut s = session();
+    s.execute("slide.new", &json!({"layout": "titleOnly", "title": "Target"})).unwrap();
+    s.execute("slide.go", &json!({"index": 0})).unwrap();
+    let z = s.execute("insert.zoom", &json!({"kind": "slide", "slides": [1]})).unwrap();
+    let id = deckcraft_model::ShapeId(z["ids"][0].as_u64().unwrap() as u32);
+    let bytes = |s: &mut Session| {
+        let st = s.doc().unwrap();
+        let sh = st.doc.slides.iter().find_map(|sl| deckcraft_model::find_shape(&sl.shapes, id)).unwrap();
+        let ShapeKind::Picture { fill } = &sh.kind else { panic!("a zoom is a picture") };
+        st.doc.media(fill.media).unwrap().data.to_vec()
+    };
+    let before = bytes(&mut s);
+    let media_count = |s: &Session| s.doc().unwrap().doc.media.len();
+    let items = media_count(&s);
+    s.execute("design.theme", &json!({"name": "Ember"})).unwrap();
+    let after = bytes(&mut s);
+    assert_ne!(before, after, "the thumbnail shows the new theme");
+    assert_eq!(media_count(&s), items, "the superseded thumbnail is not kept in the file");
+    s.execute("design.theme", &json!({"name": "DeckCraft"})).unwrap();
+    s.execute("design.theme", &json!({"name": "Ember"})).unwrap();
+    assert_eq!(media_count(&s), items, "refreshing again does not grow the file");
+    assert_eq!(bytes(&mut s), after);
+    let r = s.execute("zoom.refresh", &json!({})).unwrap();
+    assert_eq!(r["refreshed"], json!([id.0]), "{r}");
+    assert_eq!(bytes(&mut s), after, "nothing changed since, so the same picture");
+    assert_eq!(media_count(&s), items);
+    assert!(s.execute("zoom.refresh", &json!({"id": 999_999})).is_err());
+}
