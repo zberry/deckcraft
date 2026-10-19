@@ -751,3 +751,13 @@ fn the_pen_tool_defaults_to_red() {
         other => panic!("{other:?}"),
     }
 }
+
+/// II3: the pointer tool says what dragging a connector's body and its yellow handle do.
+#[test]
+fn pointer_description_covers_dragging_connectors() {
+    let mut s = Server::new(Box::new(Headless::new()));
+    let tools = call(&mut s, 1, "tools/list", json!({}));
+    let t = tools["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "pointer").unwrap();
+    let d = t["description"].as_str().unwrap();
+    assert!(d.contains("connector") && d.contains("detaches") && d.contains("yellow handle") && d.contains("bends"), "{d}");
+}

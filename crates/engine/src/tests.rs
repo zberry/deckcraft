@@ -7310,3 +7310,10 @@ fn opening_an_open_path_focuses_the_existing_document() {
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(&other);
 }
+
+/// HH8: edit.select's doc says its ids must be on one slide.
+#[test]
+fn edit_select_doc_says_ids_must_be_on_one_slide() {
+    let doc = find_command("edit.select").unwrap().params;
+    assert!(doc.contains("must be on one slide") && doc.contains("refused"), "{doc}");
+}

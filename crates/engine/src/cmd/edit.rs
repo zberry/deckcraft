@@ -39,7 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("edit.delete", "Delete", ["Edit"], Some("Delete"), "{ids?, scope?: slides} → {deleted: count, ids}", has_doc, delete),
         cmd!(noundo "edit.selectAll", "Select All", ["Edit"], Some("Cmd+A"), "{scope?: slides}", has_slide, select_all),
         cmd!(noundo "edit.deselect", "Deselect", [], Some("Escape"), "{}", has_doc, deselect),
-        cmd!(noundo "edit.select", "Select Objects", [], None, "{ids: [id], add?: bool, toggle?: bool}", has_slide, select),
+        cmd!(noundo "edit.select", "Select Objects", [], None, "{ids: [id], add?: bool, toggle?: bool} (the ids must be on one slide: ids on another slide select there and make it current; ids spread over two slides are refused)", has_slide, select),
         cmd!(query "edit.selection", "Selection", [], None, "{} → {slide, ids, selected: [{id, rect: [x, y, w, h]}]} the selected shapes with their boxes", has_doc, selection),
     ]
 }

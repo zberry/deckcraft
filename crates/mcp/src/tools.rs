@@ -273,7 +273,7 @@ pub fn tool_definitions() -> Vec<Value> {
         tool(
             "pointer",
             "Pointer gesture",
-            "Drive the active tool with pointer events in slide points (origin top-left, y down; 960×540 for 16:9): down/drag/up/move/doubleclick/contextclick, exactly like the mouse (draws, moves, resizes, rotates, places the caret; contextclick selects like a right click). Answers `selected: [{id, rect}]`, the selection's boxes after the gesture, so no inspect is needed after a drag.",
+            "Drive the active tool with pointer events in slide points (origin top-left, y down; 960×540 for 16:9): down/drag/up/move/doubleclick/contextclick, exactly like the mouse (draws, moves, resizes, rotates, places the caret; contextclick selects like a right click). Answers `selected: [{id, rect}]`, the selection's boxes after the gesture, so no inspect is needed after a drag. On a connector: dragging its body moves the whole connector and detaches its glued ends (it stays where it was dropped); dragging its yellow handle bends it (adjusts its elbow or curve) and keeps the ends glued.",
             obj(
                 json!({"events": {"type": "array", "items": obj(json!({"kind": string("down|drag|up|move|doubleclick|tripleclick|contextclick"), "x": num("x (pt)"), "y": num("y (pt)"), "mods": mods_schema()}), &["kind", "x", "y"])}, "mods": mods_schema()}),
                 &["events"],
