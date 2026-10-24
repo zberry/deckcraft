@@ -267,7 +267,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Numbering",
             ["Home", "Paragraph"],
             None,
-            "{on?: bool, scheme?: arabicPeriod|arabicParenR|romanUcPeriod|romanLcPeriod|alphaUcPeriod|alphaLcParenR|alphaLcPeriod, start?: n, color?, size?: % of text, ids?: [shape ids] (default: the selection)}",
+            "{on?: bool, scheme?: arabicPeriod|arabicParenR|romanUcPeriod|romanLcPeriod|alphaUcPeriod|alphaLcParenR|alphaLcPeriod, start?: n (a paragraph whose start differs from the one before begins a new run of numbers at n, as PowerPoint's Start at does), color?, size?: % of text, ids?: [shape ids] (default: the selection)}",
             has_text_or_shapes,
             |s, p| on_named(s, p, |s| numbering(s, p))
         ),
@@ -1116,6 +1116,11 @@ fn line_spacing(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn paragraph(s: &mut Session, p: &Value) -> Result<Value> {
+    require_any(
+        p,
+        "format.paragraph",
+        &["align", "indentLeft", "indentRight", "indentFirst", "special", "specialBy", "spaceBefore", "spaceAfter", "lineSpacing", "lineSpacingPt"],
+    )?;
     let a = str_param(p, "align").map(|a| match a {
         "center" => Align::Center,
         "right" => Align::Right,
@@ -1365,6 +1370,7 @@ fn wrap(s: &mut Session, p: &Value) -> Result<Value> {
     format_body(s, &move |b| b.wrap = Some(on))
 }
 fn margins(s: &mut Session, p: &Value) -> Result<Value> {
+    require_any(p, "format.margins", &["left", "top", "right", "bottom"])?;
     let (l, t, r, b) = (f64_param(p, "left"), f64_param(p, "top"), f64_param(p, "right"), f64_param(p, "bottom"));
     format_body(s, &move |bp| {
         if l.is_some() {
