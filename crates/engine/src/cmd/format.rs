@@ -543,8 +543,15 @@ fn size(s: &mut Session, p: &Value) -> Result<Value> {
         let graphics = super::smartart::selected_graphics(s);
         let selected = s.doc()?.selection.shapes.len();
         keeping_selection(s, |s| graphics.iter().try_for_each(|gid| super::smartart::set_font_size(s, *gid, Some(v), "format.size")))?;
-        if !graphics.is_empty() && graphics.len() == selected {
-            return ok();
+        if !graphics.is_empty() {
+            if graphics.len() == selected {
+                return ok();
+            }
+            // The other selected shapes take the size; the graphics were sized above.
+            return keeping_selection(s, |s| {
+                s.doc_mut()?.selection.shapes.retain(|id| !graphics.contains(id));
+                format_run(s, &move |r| r.size = Some(v))
+            });
         }
     }
     format_run(s, &move |r| r.size = Some(v))
@@ -608,8 +615,15 @@ fn color_selected(s: &mut Session, p: &Value) -> Result<Value> {
         let selected = s.doc()?.selection.shapes.len();
         let tc = c.clone();
         keeping_selection(s, |s| graphics.iter().try_for_each(|gid| super::smartart::set_text_color(s, *gid, tc.clone(), "format.color")))?;
-        if !graphics.is_empty() && graphics.len() == selected {
-            return ok();
+        if !graphics.is_empty() {
+            if graphics.len() == selected {
+                return ok();
+            }
+            // The other selected shapes take the colour; the graphics were coloured above.
+            return keeping_selection(s, |s| {
+                s.doc_mut()?.selection.shapes.retain(|id| !graphics.contains(id));
+                format_run(s, &move |r| r.fill = Some(Fill::solid(c.clone())))
+            });
         }
     }
     format_run(s, &move |r| r.fill = Some(Fill::solid(c.clone())))

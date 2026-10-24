@@ -7958,7 +7958,9 @@ fn format_size_on_a_mixed_selection_reaches_the_other_shapes_and_keeps_the_selec
     assert_eq!(st.selection.shapes, vec![ShapeId(g as u32), ShapeId(b as u32)], "the selection is as it was");
     let run = &st.shape(ShapeId(b as u32)).unwrap().text.as_ref().unwrap().paragraphs[0].runs[0].props;
     assert_eq!(run.size, Some(40.0), "the text box was sized too: {run:?}");
-    assert_eq!(st.shape(ShapeId(g as u32)).unwrap().diagram.as_ref().unwrap().font_size, Some(40.0));
+    let graphic = st.shape(ShapeId(g as u32)).unwrap();
+    assert_eq!(graphic.diagram.as_ref().unwrap().font_size, Some(40.0));
+    assert!(graphic.text.is_none(), "the run formatting skipped the graphic itself, which has no text of its own");
 }
 
 /// Hidden slides are skipped unless `includeHidden`, and a folder that isn't there yet is created.
