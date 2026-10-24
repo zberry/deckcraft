@@ -164,8 +164,10 @@ which folders are searched). An unknown
 Useful commands for building decks: `slide.new {layout, title, body}`, `shape.insert {preset,
 rect, text}`, `shape.connect {from, to, preset}`, `shape.freeform {points, closed, smooth}`,
 `shape.merge {op, ids}`, `format.*`, `design.theme`, `transition.set`, `animation.set`,
-`chart.*` (`chart.options {textColor}` colours a chart's title, axes, legend and labels), `table.*`, `file.export {path, layout}` (PDF) or `{path, width, secondsPerSlide, loop}`
-(GIF). `design.palette {}` answers the active theme's colours (`dk1`, `lt1`, `accent1`…`accent6`,
+`chart.*` (`chart.options {textColor}` colours a chart's title, axes, legend and labels), `table.*`, `file.export {path, layout}` (PDF), `{path, width, secondsPerSlide, loop}`
+(GIF) or `{format: "frames", path: folder, fps, secondsPerStep, secondsPerSlide, transitions, width}` (the
+slide show as a PNG frame sequence, builds and transitions played, for a video encoder; the answer's
+`slides` maps frame numbers back to slides). `design.palette {}` answers the active theme's colours (`dk1`, `lt1`, `accent1`…`accent6`,
 `hlink`, `folHlink`, plus the resolved `text` and `background`) and fonts, so a diagram can use
 the scheme names `accent1`…`accent6` or those hex values instead of hard-coding colours.
 `deckcraft-cli describe COMMAND` prints any command's parameters.
