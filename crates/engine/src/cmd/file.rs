@@ -716,6 +716,11 @@ fn export(s: &mut Session, p: &Value) -> Result<Value> {
             let mut fp = p.clone();
             if let Some(text) = p.get("slides").and_then(Value::as_str) {
                 fp["slides"] = json!(parse_slide_range(text, st.doc.slides.len())?);
+            } else if p.get("slides").is_none_or(Value::is_null)
+                && let Some(i) = usize_param(p, "slide")
+            {
+                // `slide` narrows the export to that one slide, as it does for the images.
+                fp["slides"] = json!([i]);
             }
             let opts = crate::frames_export::FramesOptions::from_params(&fp)?;
             let out = crate::frames_export::export(&st.doc, &opts, &path)?;
