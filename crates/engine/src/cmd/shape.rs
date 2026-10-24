@@ -650,6 +650,10 @@ fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         o.insert("ids".into(), json!(fillable));
     }
     edit_group_appearance(s, &np, "shape.fill", |sh| {
+        // A picture inside a selected group has no fill of its own either.
+        if matches!(sh.kind, deckcraft_model::ShapeKind::Picture { .. }) {
+            return Ok(());
+        }
         if let Some(f) = &new_fill {
             sh.fill.clone_from(f);
         }

@@ -7927,3 +7927,20 @@ fn table_insert_column_left_of_an_overflowing_span_keeps_the_text() {
     assert_eq!(t.cell(0, 2).unwrap().text.text(), "");
     assert_eq!(t.cell(0, 2).unwrap().fill, t.cell(0, 3).unwrap().fill, "the new cell takes the neighbour's fill");
 }
+
+/// A SmartArt graphic selected together with a text box: `format.size` sizes the graphic's nodes
+/// and the text box, and the selection stays as it was (regenerating the graphic used to collapse
+/// it to the graphic alone, so the other shapes were skipped).
+#[test]
+fn format_size_on_a_mixed_selection_reaches_the_other_shapes_and_keeps_the_selection() {
+    let mut s = session();
+    let g = s.execute("insert.smartArt", &json!({"kind": "blockList", "items": ["Plan", "Build"]})).unwrap()["id"].as_u64().unwrap();
+    let b = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 400, 200, 60], "text": "Note"})).unwrap()["id"].as_u64().unwrap();
+    s.execute("edit.select", &json!({"ids": [g, b]})).unwrap();
+    s.execute("format.size", &json!({"size": 40})).unwrap();
+    let st = s.doc().unwrap();
+    assert_eq!(st.selection.shapes, vec![ShapeId(g as u32), ShapeId(b as u32)], "the selection is as it was");
+    let run = &st.shape(ShapeId(b as u32)).unwrap().text.as_ref().unwrap().paragraphs[0].runs[0].props;
+    assert_eq!(run.size, Some(40.0), "the text box was sized too: {run:?}");
+    assert_eq!(st.shape(ShapeId(g as u32)).unwrap().diagram.as_ref().unwrap().font_size, Some(40.0));
+}
