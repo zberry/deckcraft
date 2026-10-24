@@ -1538,6 +1538,9 @@ fn write_master_date(s: &mut Session, o: &DateOpts) -> Result<Value> {
             "this master has no date placeholder; show it with handout.placeholders or notes.placeholders {date: true}",
         ));
     }
+    // The text the master holds afterwards, which the answer reports (it can differ from the
+    // caller's sample when the placeholder's own language formats a fixed date).
+    let mut written = o.sample.clone();
     s.edit(|doc, sel| {
         let Some(m) = crate::page_master_mut(doc, sel.target) else { return Ok(false) };
         let m = std::sync::Arc::make_mut(m);
@@ -1557,11 +1560,12 @@ fn write_master_date(s: &mut Session, o: &DateOpts) -> Result<Value> {
         let kind = if update { RunKind::Field { field: format } } else { RunKind::Text };
         let body = sh.text.clone().unwrap_or_default();
         let mut para = body.paragraphs.first().cloned().unwrap_or_default();
+        written.clone_from(&text);
         para.runs = vec![deckcraft_model::Run { text, props, kind }];
         sh.text = Some(TextBody { paragraphs: vec![para], ..body });
         Ok(true)
     })?;
-    Ok(json!({"where": "master", "format": o.format, "update": o.update, "text": o.sample}))
+    Ok(json!({"where": "master", "format": o.format, "update": o.update, "text": written}))
 }
 
 /// Point the current slide's date placeholder at this format (a field, or the sample as plain text).
@@ -2180,6 +2184,24 @@ mod tests {
             let st = s.doc().unwrap();
             let m = crate::page_master(&st.doc, st.selection.target).unwrap();
             assert!(m.shapes.iter().find(|x| x.id.0 == id).and_then(|x| x.text.as_ref()).is_none_or(|t| t.text().is_empty()), "one undo");
+            // A fixed date in a placeholder whose run is en-GB reads day first, and the answer
+            // reports the text that was written, not the en-US sample.
+            s.execute("insert.dateTime", &json!({"format": "datetime4", "update": false, "language": "en-GB"})).unwrap();
+            let v = s.execute("insert.dateTime", &json!({"format": "datetime4", "update": false})).unwrap();
+            let st = s.doc().unwrap();
+            let m = crate::page_master(&st.doc, st.selection.target).unwrap();
+            let run = m
+                .shapes
+                .iter()
+                .find(|x| x.id.0 == id)
+                .and_then(|x| x.text.as_ref())
+                .and_then(|t| t.paragraphs.first())
+                .and_then(|p| p.runs.first())
+                .cloned()
+                .unwrap();
+            assert_eq!(run.props.lang.as_deref(), Some("en-GB"), "{view}: {run:?}");
+            assert_eq!(v["text"].as_str(), Some(run.text.as_str()), "{view}: the answer reports the written text: {v}");
+            assert!(!run.text.contains(','), "{view}: en-GB puts the day first, no comma: {}", run.text);
             // No date placeholder: refused, nothing changed.
             let key = if view == "view.handoutMaster" { "handout.placeholders" } else { "notes.placeholders" };
             s.execute(key, &json!({"date": false})).unwrap();
