@@ -7969,7 +7969,12 @@ fn format_size_on_a_mixed_selection_reaches_the_other_shapes_and_keeps_the_selec
 fn frames_export_of_one_slide_takes_the_slide_parameter() {
     let (mut s, _) = frames_deck();
     let dir = frames_dir("one-slide");
-    let r = s.execute("file.export", &json!({"format": "frames", "path": dir.to_string_lossy(), "fps": 10, "secondsPerSlide": 1, "width": 320, "slide": 1})).unwrap();
+    let r = s
+        .execute(
+            "file.export",
+            &json!({"format": "frames", "path": dir.to_string_lossy(), "fps": 10, "secondsPerSlide": 1, "width": 320, "slide": 1}),
+        )
+        .unwrap();
     assert_eq!(r["slides"].as_array().map(Vec::len), Some(1), "{r}");
     assert_eq!(r["slides"][0]["index"], 1, "{r}");
     let _ = std::fs::remove_dir_all(&dir);
