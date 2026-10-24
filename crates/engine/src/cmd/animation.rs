@@ -15,7 +15,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Animation Styles",
             ["Animations", "Animation"],
             None,
-            "{effect: fade|fly|zoom|wipe|appear|spin|pulse|fadeOut|lines|… (animation.list), class?: entrance|emphasis|exit|path, option?, ids?} — replaces the shapes' animations",
+            "{effect: fade|fly|zoom|wipe|appear|spin|pulse|fadeOut|lines|… (animation.list), class?: entrance|emphasis|exit|path, option?, start?: onClick|withPrevious|afterPrevious (shapes already animated keep theirs), duration?: ms, delay?: ms, ids?} — replaces the shapes' animations",
             has_selection,
             set
         ),
@@ -24,7 +24,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Animation",
             ["Animations", "Advanced Animation"],
             None,
-            "{effect, class?, option?, start?: onClick|withPrevious|afterPrevious, duration?: ms, delay?: ms, ids?}",
+            "{effect, class?, option?, start?: onClick|withPrevious|afterPrevious, duration?: ms, delay?: ms, ids?} (several ids: the first takes `start`, the rest withPrevious, so one call is one click step) → {count, indices, steps: the click step of each added animation, as animation.get reports step}",
             has_selection,
             add
         ),
@@ -42,7 +42,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Reorder Animation",
             ["Animations", "Timing"],
             None,
-            "{index, to} (0-based; to is the final index)",
+            "{index, to} (0-based; to is the final index; click steps renumber to follow the new order; animation.get shows each one's `step`)",
             has_slide,
             move_anim
         ),
@@ -51,7 +51,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Timing",
             ["Animations", "Timing"],
             None,
-            "{index? (else selected shapes), start?: onClick|withPrevious|afterPrevious, duration?: ms, delay?: ms, repeat?: n, rewind?: bool, trigger?: shape id | null}",
+            "{index?: the animation's position in the slide's list (as animation.get numbers them), indices?: [index], all?: true (every animation on the slide; else the selected shapes' animations), start?: onClick|withPrevious|afterPrevious (the click steps that follow are reported by animation.get as `step`), duration?: ms, delay?: ms, repeat?: n, rewind?: bool, trigger?: shape id | null}",
             has_slide,
             timing
         ),
@@ -60,7 +60,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Effect Options",
             ["Animations", "Animation"],
             None,
-            "{option?, textBuild?: asOne|byParagraph|byWord|byLetter, index?}",
+            "{option?, textBuild?: asOne|byParagraph|byWord|byLetter, index?, indices?: [index], all?: true}",
             has_slide,
             options
         ),
@@ -76,7 +76,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("animation.painterApply", "Apply Animation", [], Some("Alt+Shift+V"), "{ids?}", has_selection, painter_apply),
         cmd!(query "animation.list", "Animation Gallery", [], None, "{} → [{id, label, class, options}]", always, list),
-        cmd!(query "animation.get", "Animations on Slide", [], None, "{slide?} → [animation]", has_slide, get),
+        cmd!(query "animation.get", "Animations on Slide", [], None, "{slide?} → [animation + step: its click step, counted from 1]", has_slide, get),
     ]
 }
 
@@ -234,6 +234,7 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
     let a = build(p)?;
     s.edit(|doc, sel| {
         let sl = Arc::make_mut(doc.slides.get_mut(sel.slide).ok_or_else(|| bad("animation.add", "no slide"))?);
+        let first = sl.animations.len();
         for (k, id) in ids.iter().enumerate() {
             let mut x = Animation { shape: *id, ..a.clone() };
             if k > 0 {
@@ -241,8 +242,21 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
             }
             sl.animations.push(x);
         }
-        Ok(json!({"count": sl.animations.len()}))
+        let indices: Vec<usize> = (first..sl.animations.len()).collect();
+        let steps: Vec<usize> = steps(&sl.animations).get(first..).map(<[usize]>::to_vec).unwrap_or_default();
+        Ok(json!({"count": sl.animations.len(), "indices": indices, "steps": steps}))
     })
+}
+
+/// An animation index past the end, naming the slide it looked at: the current slide is often
+/// not the one the agent meant.
+fn no_animation(i: usize, slide: usize, n: usize) -> String {
+    let has = match n {
+        0 => "no animations".to_string(),
+        1 => "1 animation (index 0)".to_string(),
+        n => format!("{n} animations (indices 0 through {})", n - 1),
+    };
+    format!("no animation at index {i}: slide index {slide} has {has}")
 }
 
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {
@@ -254,7 +268,7 @@ fn remove(s: &mut Session, p: &Value) -> Result<Value> {
             Some(i) if i < sl.animations.len() => {
                 sl.animations.remove(i);
             }
-            Some(i) => return Err(bad("animation.remove", super::out_of_range("animation", i, sl.animations.len()))),
+            Some(i) => return Err(bad("animation.remove", no_animation(i, sel.slide, sl.animations.len()))),
             None => sl.animations.retain(|a| !ids.contains(&a.shape)),
         }
         Ok(())
@@ -267,10 +281,9 @@ fn move_anim(s: &mut Session, p: &Value) -> Result<Value> {
     let to = super::opt_usize_param(p, "to", "animation.move")?.ok_or_else(|| bad("animation.move", "missing `to`"))?;
     s.edit(|doc, sel| {
         let sl = Arc::make_mut(doc.slides.get_mut(sel.slide).ok_or_else(|| bad("animation.move", "no slide"))?);
-        // `to` is the final index, so it has the same range as `index`: refused, never clamped.
         let n = sl.animations.len();
         if let Some(j) = [i, to].into_iter().find(|j| *j >= n) {
-            return Err(bad("animation.move", super::out_of_range("animation", j, n)));
+            return Err(bad("animation.move", no_animation(j, sel.slide, n)));
         }
         let a = sl.animations.remove(i);
         sl.animations.insert(to, a);
@@ -279,20 +292,73 @@ fn move_anim(s: &mut Session, p: &Value) -> Result<Value> {
     ok()
 }
 
+/// Which animations of the slide a timing/options call changes: `all: true` every one, `indices`
+/// a chosen set, `index` one, else the selected shapes' (or `ids`').
+enum Which {
+    All,
+    Indices(Vec<usize>),
+    Shapes(Vec<ShapeId>),
+}
+
+fn which(s: &mut Session, p: &Value) -> Result<Which> {
+    if bool_param(p, "all").unwrap_or(false) {
+        return Ok(Which::All);
+    }
+    if let Some(a) = p.get("indices").and_then(Value::as_array) {
+        // An entry that is no position is refused naming it, not dropped (#298).
+        let v: Vec<usize> = a
+            .iter()
+            .map(|x| {
+                x.as_u64().and_then(|x| usize::try_from(x).ok()).ok_or_else(|| {
+                    bad(
+                        "animation",
+                        format!("`indices` entry {x} is not an animation position (a whole number from 0 up, as animation.get numbers them)"),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        if v.is_empty() {
+            return Err(bad("animation", "`indices` is empty: pass the animations' positions as animation.get numbers them, or `all: true`"));
+        }
+        return Ok(Which::Indices(v));
+    }
+    if let Some(i) = super::opt_usize_param(p, "index", "animation")? {
+        return Ok(Which::Indices(vec![i]));
+    }
+    Ok(Which::Shapes(targets(s, p)?))
+}
+
 fn each_target(s: &mut Session, p: &Value, f: impl Fn(&mut Animation)) -> Result<Value> {
-    let index = super::opt_usize_param(p, "index", "animation")?;
-    let ids = if index.is_none() { targets(s, p)? } else { vec![] };
+    let which = which(s, p)?;
     s.edit(|doc, sel| {
         let sl = Arc::make_mut(doc.slides.get_mut(sel.slide).ok_or_else(|| bad("animation", "no slide"))?);
+        // An index past the end is refused before anything changes.
+        if let Which::Indices(v) = &which
+            && let Some(&i) = v.iter().find(|i| **i >= sl.animations.len())
+        {
+            return Err(bad("animation", no_animation(i, sel.slide, sl.animations.len())));
+        }
         let mut n = 0;
         for (k, a) in sl.animations.iter_mut().enumerate() {
-            if index == Some(k) || (index.is_none() && ids.contains(&a.shape)) {
+            let hit = match &which {
+                Which::All => true,
+                Which::Indices(v) => v.contains(&k),
+                Which::Shapes(ids) => ids.contains(&a.shape),
+            };
+            if hit {
                 f(a);
                 n += 1;
             }
         }
         if n == 0 {
-            return Err(bad("animation", "no animation to change (select an animated object or give `index`)"));
+            let index = if let Which::Indices(v) = &which { v.first().copied() } else { None };
+            return Err(bad(
+                "animation",
+                match index {
+                    Some(i) => no_animation(i, sel.slide, sl.animations.len()),
+                    None => format!("no animation to change on slide index {} (select an animated object or give `index`)", sel.slide),
+                },
+            ));
         }
         Ok(json!({"changed": n}))
     })
@@ -372,11 +438,45 @@ fn list(_s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(Value::Array(ANIMATIONS.iter().map(|a| json!({"id": a.0, "label": a.1, "class": a.2.xml(), "options": a.5})).collect()))
 }
 
+/// The click step of each animation, counted from 1: the first animation opens step 1, and every
+/// later `onClick` opens the next; `withPrevious` and `afterPrevious` join the step before them.
+fn steps(anims: &[Animation]) -> Vec<usize> {
+    let mut step = 0usize;
+    anims
+        .iter()
+        .enumerate()
+        .map(|(k, a)| {
+            if k == 0 || a.start == AnimStart::OnClick {
+                step += 1;
+            }
+            step
+        })
+        .collect()
+}
+
+/// How many clicks play the slide's animations (`slide.inspect`'s summary).
+pub(crate) fn click_steps(anims: &[Animation]) -> usize {
+    steps(anims).last().copied().unwrap_or(0)
+}
+
 fn get(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.doc()?;
     let i = super::opt_usize_param(p, "slide", "animation.get")?.unwrap_or(st.selection.slide);
     let sl = st.doc.slides.get(i).ok_or_else(|| super::no_slide("animation.get", i, st.doc.slides.len()))?;
-    Ok(serde_json::to_value(&sl.animations).unwrap_or_default())
+    let list: Vec<Value> = sl
+        .animations
+        .iter()
+        .zip(steps(&sl.animations))
+        .map(|(a, step)| {
+            let mut v = serde_json::to_value(a).unwrap_or_default();
+            if let Some(o) = v.as_object_mut() {
+                o.retain(|_, x| !x.is_null());
+                o.insert("step".into(), json!(step));
+            }
+            v
+        })
+        .collect();
+    Ok(Value::Array(list))
 }
 
 fn painter_pick(s: &mut Session, p: &Value) -> Result<Value> {
