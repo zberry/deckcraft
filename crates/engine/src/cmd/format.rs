@@ -69,7 +69,15 @@ pub fn specs() -> Vec<CommandSpec> {
             has_text_or_shapes,
             |s, p| on_named(s, p, |s| subscript(s, p))
         ),
-        cmd!("format.font", "Font", ["Home", "Font"], None, "{family, ids?: [shape ids] (default: the selection)}", has_text_or_shapes, font),
+        cmd!(
+            "format.font",
+            "Font",
+            ["Home", "Font"],
+            None,
+            "{family, eastAsia?: family, complexScript?: family, ids?: [shape ids] (default: the selection)}",
+            has_text_or_shapes,
+            font
+        ),
         cmd!(
             "format.size",
             "Font Size",

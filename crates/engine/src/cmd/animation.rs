@@ -251,12 +251,11 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
 /// An animation index past the end, naming the slide it looked at: the current slide is often
 /// not the one the agent meant.
 fn no_animation(i: usize, slide: usize, n: usize) -> String {
-    let has = match n {
-        0 => "no animations".to_string(),
-        1 => "1 animation (index 0)".to_string(),
-        n => format!("{n} animations (indices 0 through {})", n - 1),
-    };
-    format!("no animation at index {i}: slide index {slide} has {has}")
+    if n == 0 {
+        return format!("no animation at index {i}: slide index {slide} has no animations");
+    }
+    let has = if n == 1 { "1 animation".to_string() } else { format!("{n} animations") };
+    format!("{} on slide index {slide}, which has {has}", super::out_of_range("animation", i, n))
 }
 
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {

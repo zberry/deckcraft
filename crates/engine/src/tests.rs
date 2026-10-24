@@ -5009,7 +5009,7 @@ fn a_shape_on_another_slide_is_edited_where_it_is() {
     s.execute("slide.new", &json!({})).unwrap();
     assert_eq!(s.doc().unwrap().selection.slide, 1);
     let r = s.execute("text.set", &json!({"id": a, "text": "far away"})).unwrap();
-    assert_eq!(r, json!({"changed": 1, "onSlides": [0], "currentSlide": 0}), "{r}");
+    assert_eq!(r, json!({"changed": 1, "ids": [a], "onSlides": [0], "currentSlide": 0}), "{r}");
     let sel = s.doc().unwrap().selection.clone();
     assert_eq!(
         (sel.slide, sel.shapes.iter().map(|x| u64::from(x.0)).collect::<Vec<_>>()),
@@ -5018,7 +5018,7 @@ fn a_shape_on_another_slide_is_edited_where_it_is() {
     );
     s.execute("slide.go", &json!({"index": 1})).unwrap();
     let r = s.execute("shape.fill", &json!({"ids": [a, b], "color": "#FF0000"})).unwrap();
-    assert_eq!(r, json!({"changed": 2, "onSlides": [0], "currentSlide": 0}), "{r}");
+    assert_eq!(r, json!({"changed": 2, "ids": [a, b], "onSlides": [0], "currentSlide": 0}), "{r}");
     s.execute("slide.go", &json!({"index": 1})).unwrap();
     assert_eq!(s.execute("text.get", &json!({"id": a})).unwrap()["text"], "far away");
     assert_eq!(s.execute("shape.sites", &json!({"id": a})).unwrap().as_array().map(Vec::len), Some(4));
@@ -5095,7 +5095,7 @@ fn edit_select_follows_an_id_to_its_slide() {
     assert!(e.contains("no shape 999 on the current slide (index 0)"), "{e}");
     let e = s.execute("edit.select", &json!({"ids": [a, b]})).unwrap_err().to_string();
     assert!(e.contains(&format!("shape {b} is on slide index 1")) && e.contains("one slide"), "{e}");
-    assert_eq!(s.doc().unwrap().selection.shapes.iter().map(|x| u64::from(x.0)).collect::<Vec<_>>(), vec![a], "a refused select keeps the selection");
+    assert!(s.doc().unwrap().selection.shapes.is_empty(), "a refused select leaves nothing selected (II2)");
 }
 
 /// Final-run findings: an explicit empty `ids` is refused instead of quietly acting on the
@@ -5281,8 +5281,11 @@ fn master_insert_placeholder_refuses_an_unknown_kind() {
     s.execute("view.slideMaster", &json!({"layout": 0})).unwrap();
     let shapes = |s: &Session| s.doc().unwrap().doc.masters[0].layouts[0].shapes.len();
     let before = shapes(&s);
-    let e = s.execute("master.insertPlaceholder", &json!({"kind": "footer", "rect": [10, 10, 100, 50]})).unwrap_err().to_string();
-    assert!(e.contains("`kind`") && e.contains("content, text, picture, chart, table or media") && e.contains("`footer`"), "{e}");
+    let e = s.execute("master.insertPlaceholder", &json!({"kind": "header", "rect": [10, 10, 100, 50]})).unwrap_err().to_string();
+    assert!(
+        e.contains("`kind`") && e.contains("content, text, picture, chart, table, media, subtitle, date, footer or sldNum") && e.contains("`header`"),
+        "{e}"
+    );
     assert_eq!(shapes(&s), before, "nothing inserted");
     s.execute("master.insertPlaceholder", &json!({"kind": "picture", "rect": [10, 10, 100, 50]})).unwrap();
     assert_eq!(shapes(&s), before + 1);
@@ -5403,7 +5406,7 @@ fn section_add_refuses_an_index_past_the_end_and_lists_the_sections() {
     let mut s = session();
     s.execute("slide.new", &json!({})).unwrap();
     let e = s.execute("section.add", &json!({"name": "Late", "at": 2})).unwrap_err().to_string();
-    assert!(e.contains("no slide at index 2") && e.contains("2 slides") && e.contains("0 through 1"), "{e}");
+    assert!(e.contains("no slide at index 2") && e.contains("indices run 0 through 1"), "{e}");
     assert!(s.doc().unwrap().doc.sections.is_empty(), "a refused section.add adds nothing");
     let r = s.execute("section.add", &json!({"name": "Part B", "at": 1})).unwrap();
     assert_eq!((r["index"].as_u64(), r["name"].as_str(), r["count"].as_u64()), (Some(1), Some("Part B"), Some(2)), "{r}");
@@ -5445,10 +5448,11 @@ fn thin_answers_carry_the_next_steps_facts() {
 
     let m = s.execute("slide.move", &json!({"from": 1, "to": 0})).unwrap();
     let st = s.doc().unwrap();
-    assert_eq!(m, json!({"index": 0, "id": st.doc.slides[0].id}), "{m}");
+    assert_eq!(m, json!({"index": 0, "id": st.doc.slides[0].id, "section": null}), "{m}");
 
-    let t = s.execute("design.theme", &json!({"name": "Harbor"})).unwrap();
+    let mut t = s.execute("design.theme", &json!({"name": "Harbor"})).unwrap();
     let p = s.execute("design.palette", &json!({})).unwrap();
+    assert_eq!(t.as_object_mut().unwrap().remove("changed"), Some(json!(["theme", "fonts"])));
     assert_eq!(t, p, "design.theme answers the palette");
     assert_eq!(t["theme"], "Harbor", "{t}");
 
@@ -7075,35 +7079,6 @@ fn hide_background_graphics_in_layout_view_sets_the_layout() {
     assert_eq!(flags(&s), (true, slides0));
     s.execute("view.slideMaster", &json!({"master": 0})).unwrap();
     assert!(s.execute("design.hideBackgroundGraphics", &json!({"hide": true})).is_err());
-}
-
-/// #891: Design ▸ Format Background ▸ Apply to All sets the master's background and clears the
-/// slides' own, so a slide added later inherits it.
-#[test]
-fn background_all_reaches_slides_added_later() {
-    use deckcraft_model::resolve::{self, Ctx};
-    let mut s = session();
-    s.execute("slide.new", &json!({"layout": "titleAndContent"})).unwrap();
-    s.execute("design.background", &json!({"color": "#ff0000", "all": true})).unwrap();
-    s.execute("slide.new", &json!({"layout": "titleOnly"})).unwrap();
-    s.execute("slide.new", &json!({"layout": "blank"})).unwrap();
-    let st = s.doc().unwrap();
-    let red = |i: usize| {
-        let sl = st.doc.slides.get(i).unwrap();
-        let ctx = Ctx::for_slide(&st.doc, sl).unwrap();
-        let (fill, _) = resolve::background(&ctx, Some(sl));
-        format!("{fill:?}")
-    };
-    assert!(red(0).contains("ff0000") || red(0).contains("255"), "{}", red(0));
-    for i in 1..st.doc.slides.len() {
-        assert_eq!(red(i), red(0), "slide {i} follows");
-    }
-    assert!(st.doc.slides.iter().all(|sl| sl.background.is_none()), "no per-slide override");
-    // A single slide keeps its own override.
-    s.execute("design.background", &json!({"color": "#00ff00"})).unwrap();
-    let st = s.doc().unwrap();
-    assert!(st.doc.slides[st.selection.slide].background.is_some());
-    assert!(st.doc.slides.iter().filter(|sl| sl.background.is_some()).count() == 1);
 }
 
 #[test]

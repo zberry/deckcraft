@@ -571,7 +571,11 @@ impl crate::backend::Backend for FakeApp {
                 Some(p) => json!({"path": p, "width": 1280, "height": 800}),
                 None => json!({"png": "iVBORw0KGgo=", "width": 1280, "height": 800}),
             }),
+            "ui.key" if params["key"] == "ArrowRight" => Ok(json!({"show": true, "showing": {"slide": 2, "step": 1, "ended": false}})),
+            // A backend whose key answer lacks `showing`.
+            "ui.key" if params["key"] == "PageDown" => Ok(json!({"show": true})),
             "ui.key" => Ok(json!({"handled": true})),
+            "ui.inspect" => Ok(json!({"showing": {"slide": 3, "step": 0, "ended": false}})),
             "engine.execute" if params["command"] == "edit.selection" => {
                 Ok(json!({"slide": 0, "ids": [7], "selected": [{"id": 7, "rect": [1.0, 2.0, 3.0, 4.0]}]}))
             }

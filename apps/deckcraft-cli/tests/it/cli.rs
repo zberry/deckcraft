@@ -105,7 +105,7 @@ Run it with: deckcraft-cli run --cmd 'shape.insert={…}'
     );
     assert_eq!(
         stdout(&cli(&["describe", "format.size"])),
-        "format.size: Font Size, in Home ▸ Font.\n\nParameters:\n  size  pt\nActs on the selected text or shapes.\nNote: on a master placeholder in Slide Master view it sets the master text style, so every layout and slide that does not override it follows\n\nRun it with: deckcraft-cli run --cmd 'format.size={…}'\n"
+        "format.size: Font Size, in Home ▸ Font.\n\nParameters:\n  size           pt\n  ids, optional  [shape ids] (default: the selection)\nActs on the selected text or shapes.\nNote: on a master placeholder in Slide Master view it sets the master text style, so every layout and slide that does not override it follows\n\nRun it with: deckcraft-cli run --cmd 'format.size={…}'\n"
     );
     assert!(stdout(&cli(&["describe", "edit.copy"])).contains(
         "Answers with {text, html?, ids: the copied shapes, slides?: the copied slides' ids}.\n\nRun it with: deckcraft-cli run --cmd edit.copy\n"
@@ -140,7 +140,7 @@ fn describe_shows_alternative_sets_of_parameters() {
 fn commands_lists_one_line_per_command() {
     assert_eq!(
         stdout(&cli(&["commands", "format.size"])),
-        "format.size — Font Size: {size: pt} (on a master placeholder in Slide Master view it sets the master text style, so every layout and slide that does not override it follows)\n"
+        "format.size — Font Size: {size: pt, ids?: [shape ids] (default: the selection)} (on a master placeholder in Slide Master view it sets the master text style, so every layout and slide that does not override it follows)\n"
     );
     assert_eq!(stdout(&cli(&["commands", "slide.next"])), "slide.next — Next Slide\n");
     assert_eq!(stdout(&cli(&["commands", "shape.presets"])), "shape.presets — Shape Gallery → [{name, label, category}]\n");
