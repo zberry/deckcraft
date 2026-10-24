@@ -6628,7 +6628,7 @@ fn shape_fill_on_a_picture_is_refused_naming_recolor() {
     let pic = st.shape(ShapeId(id.as_u64().unwrap() as u32)).unwrap();
     assert!(pic.fill.is_none(), "a picture in a filled group keeps no fill: {:?}", pic.fill);
     let rect = st.shape(ShapeId(r["id"].as_u64().unwrap() as u32)).unwrap();
-    assert!(format!("{:?}", rect.fill).contains("0000FF") || format!("{:?}", rect.fill).contains("0, 0, 255"), "{:?}", rect.fill);
+    assert!(format!("{:?}", rect.fill).contains("b: 255"), "the shape in the group took the blue fill: {:?}", rect.fill);
 }
 
 /// MM1: the text formatters that took only the selection take `ids` too, like `shape.fill`: the
