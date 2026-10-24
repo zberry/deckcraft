@@ -1897,10 +1897,11 @@ fn layout_scaled(ctx: &Ctx, shape: &Shape, body: &TextBody, bp: &BodyProps, opts
                 *deeper = 0;
             }
             numbering.get(lvl).copied()
-        } else if matches!(pp.bullet, Some(Bullet::AutoNum { .. })) {
+        } else if let Some(Bullet::AutoNum { start_at, .. }) = &pp.bullet {
             // Preview the next number without consuming it: empty paragraphs do not advance
-            // numbering in the saved document or affect later populated paragraphs.
-            numbering.get(lvl).map(|n| n.saturating_add(1))
+            // numbering in the saved document or affect later populated paragraphs. A paragraph
+            // with its own start would begin a new run, so it previews that run's first number.
+            if run_start.get(lvl).is_some_and(|rs| *rs != *start_at) { Some(1) } else { numbering.get(lvl).map(|n| n.saturating_add(1)) }
         } else {
             if !para.is_empty() {
                 for n in numbering.iter_mut().skip(lvl) {

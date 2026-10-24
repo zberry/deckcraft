@@ -1163,11 +1163,7 @@ fn line_spacing(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn paragraph(s: &mut Session, p: &Value) -> Result<Value> {
-    require_any(
-        p,
-        "format.paragraph",
-        &["align", "indentLeft", "indentRight", "indentFirst", "special", "specialBy", "spaceBefore", "spaceAfter", "lineSpacing", "lineSpacingPt"],
-    )?;
+    require_any(p, "format.paragraph", &["align", "indentLeft", "indentFirst", "spaceBefore", "spaceAfter", "lineSpacing", "lineSpacingPt"])?;
     let a = str_param(p, "align").map(|a| match a {
         "center" => Align::Center,
         "right" => Align::Right,
