@@ -7979,3 +7979,23 @@ fn frames_export_of_one_slide_takes_the_slide_parameter() {
     assert_eq!(r["slides"][0]["index"], 1, "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A SmartArt graphic selected together with a text box: `format.size` sizes the graphic's nodes
+/// and the text box, and the selection stays as it was (regenerating the graphic used to collapse
+/// it to the graphic alone, so the other shapes were skipped).
+/// `ids: []` names nothing: a formatter given it acts on the selection, the selected text range
+/// included, instead of dropping the range and formatting the whole shape.
+#[test]
+fn an_empty_ids_list_formats_the_selected_text_range_like_no_ids() {
+    let mut s = session();
+    let id = s.execute("shape.insert", &json!({"preset": "rect", "rect": [10, 10, 300, 60], "text": "Hello world"})).unwrap()["id"].as_u64().unwrap();
+    s.execute("text.edit", &json!({"id": id})).unwrap();
+    s.execute("text.select", &json!({"anchor": [0, 0], "caret": [0, 5]})).unwrap();
+    s.execute("format.bold", &json!({"on": true, "ids": []})).unwrap();
+    let st = s.doc().unwrap();
+    assert!(st.selection.text.as_ref().is_some_and(|t| t.is_range()), "the text range stays selected");
+    let runs = &st.shape(ShapeId(id as u32)).unwrap().text.as_ref().unwrap().paragraphs[0].runs;
+    assert!(runs.len() >= 2, "the range was split off: {runs:?}");
+    assert_eq!(runs[0].props.bold, Some(true), "{runs:?}");
+    assert_ne!(runs.last().unwrap().props.bold, Some(true), "the rest of the text is not bold: {runs:?}");
+}

@@ -397,7 +397,9 @@ pub fn specs() -> Vec<CommandSpec> {
 /// Run `f` on the shapes `ids`/`id` name instead of the selection, as `shape.fill` does; without
 /// either, on the selection. The selection is put back after, also when the edit is refused (unless the edit went to another slide).
 fn on_named(s: &mut Session, p: &Value, f: impl FnOnce(&mut Session) -> Result<Value>) -> Result<Value> {
-    if p.get("ids").is_none_or(Value::is_null) && p.get("id").is_none_or(Value::is_null) {
+    // An empty `ids` names nothing and means the selection, as `targets` reads it.
+    let named = |k: &str| p.get(k).is_some_and(|v| !v.is_null() && v.as_array().is_none_or(|a| !a.is_empty()));
+    if !named("ids") && !named("id") {
         return f(s);
     }
     let ids = super::targets(s, p)?;
