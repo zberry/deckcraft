@@ -6097,9 +6097,15 @@ fn text_set_keeps_the_formatting_of_an_empty_shape() {
     s.execute("format.size", &json!({"size": 30})).unwrap();
     s.execute("format.bold", &json!({"on": true})).unwrap();
     s.execute("text.set", &json!({"id": id, "text": "Hello"})).unwrap();
-    let st = s.doc().unwrap();
-    let run = &st.shape(deckcraft_model::ShapeId(id as u32)).unwrap().text.as_ref().unwrap().paragraphs[0].runs[0].props;
+    let props =
+        |s: &Session| s.doc().unwrap().shape(deckcraft_model::ShapeId(id as u32)).unwrap().text.as_ref().unwrap().paragraphs[0].runs[0].props.clone();
+    let run = props(&s);
     assert_eq!((run.size, run.bold), (Some(30.0), Some(true)), "{run:?}");
+    // Emptied and filled again: the empty paragraph's end mark carried the formatting.
+    s.execute("text.set", &json!({"id": id, "text": ""})).unwrap();
+    s.execute("text.set", &json!({"id": id, "text": "Again"})).unwrap();
+    let run = props(&s);
+    assert_eq!((run.size, run.bold), (Some(30.0), Some(true)), "after an empty text.set: {run:?}");
 }
 
 /// HH1: `shape.connect` glues to a shape inside a group, as PowerPoint does: the connector's
