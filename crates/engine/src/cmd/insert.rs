@@ -1546,13 +1546,18 @@ fn write_master_date(s: &mut Session, o: &DateOpts) -> Result<Value> {
         let Some(i) = chosen.or_else(|| m.shapes.iter().position(date)) else { return Ok(false) };
         let Some(sh) = m.shapes.get_mut(i) else { return Ok(false) };
         let mut props = sh.text.as_ref().and_then(|t| t.paragraphs.first()).and_then(|p| p.runs.first()).map(|r| r.props.clone()).unwrap_or_default();
+        // A fixed date reads in the placeholder's own language when the caller named none.
+        let text = match (&lang, &props.lang) {
+            (None, Some(l)) if !update => date_sample(&format, Some(l)).unwrap_or_else(|_| sample.clone()),
+            _ => sample.clone(),
+        };
         if let Some(lang) = lang {
             props.lang = Some(lang);
         }
         let kind = if update { RunKind::Field { field: format } } else { RunKind::Text };
         let body = sh.text.clone().unwrap_or_default();
         let mut para = body.paragraphs.first().cloned().unwrap_or_default();
-        para.runs = vec![deckcraft_model::Run { text: sample, props, kind }];
+        para.runs = vec![deckcraft_model::Run { text, props, kind }];
         sh.text = Some(TextBody { paragraphs: vec![para], ..body });
         Ok(true)
     })?;

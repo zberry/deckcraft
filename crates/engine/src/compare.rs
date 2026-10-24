@@ -206,10 +206,12 @@ fn shape_details(cp: &Presentation, a: &Shape, rp: &Presentation, b: &Shape, out
         (Some(x), Some(y)) if (x.w, x.h) != (y.w, y.h) => what.push("resized"),
         // No stored box means the layout's: unrotated and unflipped, the same as a stored 0.
         (x, y) if x.as_ref().map_or(0.0, |x| x.rot) != y.as_ref().map_or(0.0, |y| y.rot) => what.push("rotated"),
-        (x, y) if x.as_ref().map_or((false, false), |x| (x.flip_h, x.flip_v)) != y.as_ref().map_or((false, false), |y| (y.flip_h, y.flip_v)) => {
-            what.push("flipped")
-        }
         _ => {}
+    }
+    // A flip is reported alongside a move, resize or rotation, not hidden behind it.
+    let flips = |x: &Option<deckcraft_model::Xfrm>| x.as_ref().map_or((false, false), |x| (x.flip_h, x.flip_v));
+    if flips(&a.xfrm) != flips(&b.xfrm) {
+        what.push("flipped");
     }
     if a.fill != b.fill || a.line != b.line || a.style != b.style || a.effects != b.effects {
         what.push("formatting");

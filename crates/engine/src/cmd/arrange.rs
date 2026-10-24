@@ -241,11 +241,38 @@ pub(crate) fn refit_groups(old: &deckcraft_model::Presentation, new: &mut deckcr
         let shapes = &mut std::sync::Arc::make_mut(slide).shapes;
         refit_list(Some(&before.shapes), shapes);
     }
+    // A child edited in Slide Master, layout, notes or handout view refits its group there too.
+    for (i, master) in new.masters.iter_mut().enumerate() {
+        if let Some(before) = old.masters.get(i)
+            && !std::sync::Arc::ptr_eq(before, master)
+        {
+            refit_master(before, std::sync::Arc::make_mut(master));
+        }
+    }
+    for (before, after) in [(old.notes_master.as_ref(), new.notes_master.as_mut()), (old.handout_master.as_ref(), new.handout_master.as_mut())] {
+        if let (Some(before), Some(after)) = (before, after)
+            && !std::sync::Arc::ptr_eq(before, after)
+        {
+            refit_master(before, std::sync::Arc::make_mut(after));
+        }
+    }
+}
+
+fn refit_master(old: &deckcraft_model::Master, new: &mut deckcraft_model::Master) {
+    refit_list(Some(&old.shapes), &mut new.shapes);
+    for (i, layout) in new.layouts.iter_mut().enumerate() {
+        refit_list(old.layouts.get(i).map(|l| &l.shapes), &mut layout.shapes);
+    }
 }
 
 fn refit_list(old: Option<&Vec<Shape>>, list: &mut [Shape]) {
+    // Most edits touch a slide without groups: nothing to refit, and no per-shape lookup.
+    if !list.iter().any(|sh| matches!(sh.kind, ShapeKind::Group { .. })) {
+        return;
+    }
+    let by_id: std::collections::HashMap<ShapeId, &Shape> = old.map(|o| o.iter().map(|x| (x.id, x)).collect()).unwrap_or_default();
     for sh in list.iter_mut() {
-        let before = old.and_then(|o| o.iter().find(|x| x.id == sh.id));
+        let before = by_id.get(&sh.id).copied();
         let old_children = before.and_then(|b| match &b.kind {
             ShapeKind::Group { children, .. } => Some(children),
             _ => None,
