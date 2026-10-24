@@ -6620,6 +6620,15 @@ fn shape_fill_on_a_picture_is_refused_naming_recolor() {
     s.execute("shape.fill", &json!({"ids": [id.clone(), r["id"].clone()], "color": "#00FF00"})).unwrap();
     let pic = s.doc().unwrap().shape(ShapeId(id.as_u64().unwrap() as u32)).unwrap().clone();
     assert!(pic.fill.is_none(), "the picture keeps no fill of its own: {:?}", pic.fill);
+    // Grouped with the shape, the picture is left alone when the group is filled.
+    s.execute("edit.select", &json!({"ids": [id.clone(), r["id"].clone()]})).unwrap();
+    s.execute("arrange.group", &json!({})).unwrap();
+    s.execute("shape.fill", &json!({"color": "#0000FF"})).unwrap();
+    let st = s.doc().unwrap();
+    let pic = st.shape(ShapeId(id.as_u64().unwrap() as u32)).unwrap();
+    assert!(pic.fill.is_none(), "a picture in a filled group keeps no fill: {:?}", pic.fill);
+    let rect = st.shape(ShapeId(r["id"].as_u64().unwrap() as u32)).unwrap();
+    assert!(format!("{:?}", rect.fill).contains("0000FF") || format!("{:?}", rect.fill).contains("0, 0, 255"), "{:?}", rect.fill);
 }
 
 /// MM1: the text formatters that took only the selection take `ids` too, like `shape.fill`: the
@@ -6845,7 +6854,15 @@ fn picture_reset_keeps_the_frame_shape() {
 /// the new picture (not a bug: the second file differs).
 #[test]
 fn exporting_a_slide_again_overwrites_the_png_with_the_edit() {
+    /// Removes the folder when the test ends, a failed assertion included.
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
     let dir = std::env::temp_dir().join(format!("deckcraft-hh12-{}", std::process::id()));
+    let _cleanup = Cleanup(dir.clone());
     let png = dir.join("slide.png");
     std::fs::create_dir_all(&dir).unwrap();
     let mut s = session();
@@ -6856,7 +6873,6 @@ fn exporting_a_slide_again_overwrites_the_png_with_the_edit() {
     s.execute("shape.fill", &json!({"color": "#FF0000"})).unwrap();
     s.execute("file.export", &json!({"path": path, "format": "png", "slide": 0, "scale": 0.5})).unwrap();
     let second = std::fs::read(&png).unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
     assert_ne!(first, second, "the second export replaced the file with the edited slide");
 }
 
