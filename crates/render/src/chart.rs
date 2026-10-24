@@ -453,7 +453,10 @@ fn draw_inner(ctx: &mut RenderContext, rctx: &Ctx, c: &Chart, m: Affine, w: f64,
         let fewest = if axis_len >= 4.0 * extent { 4.0 } else { 2.0 };
         (axis_len / room.max(1e-9)).floor().clamp(fewest, 12.0) as usize
     };
-    let max_intervals = if horiz {
+    let max_intervals = if c.y_hidden {
+        // Hidden labels take no room: the plain length budget, as before labels were measured.
+        (axis_len / if horiz { base * 6.0 } else { base * 1.9 }).floor().clamp(2.0, 12.0) as usize
+    } else if horiz {
         // The widest label of the scale `intervals` picks; fewer, rounder steps can reach a longer
         // maximum (1,000,000,000,000 against 500,000,000,000), so the budget is measured again on
         // the scale it selects until it stops shrinking.
