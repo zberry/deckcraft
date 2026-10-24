@@ -72,7 +72,9 @@ fn collect<'a>(e: &'a El, trigger: Option<u32>, out: &mut Vec<Found<'a>>, depth:
             // Only a click starts a button sequence we can write back. A media bookmark
             // (`onMediaBookmark`) or other start has no model: leave its effects out rather
             // than save them as clicks on the media shape (#362).
-            if ctn.path(&["stCondLst", "cond"]).and_then(|c| c.attr("evt")).is_some_and(|evt| evt != "onClick") {
+            let other_start =
+                ctn.child("stCondLst").is_some_and(|l| l.children_named("cond").any(|c| c.attr("evt").is_some_and(|evt| evt != "onClick")));
+            if other_start {
                 log::warn!("pptx: an animation sequence with a start other than a click was left out");
                 continue;
             }
