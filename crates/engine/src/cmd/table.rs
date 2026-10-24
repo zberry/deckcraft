@@ -390,8 +390,9 @@ fn insert_col_like(t: &mut Table, at: usize, neighbour: usize, keep_width: bool)
         let Some(tpl) = tpl else { continue };
         // Inserted left of a merge's anchor, the merge now starts at the new cell, which took the
         // anchor's cell whole, text and formatting (Table::insert_col_beside); the old anchor,
-        // covered now, is the empty cell that gets the neighbour's formatting.
-        let anchor_moved = at == neighbour && tpl.grid_span > 1 && !tpl.is_covered();
+        // covered now, is the empty cell that gets the neighbour's formatting. Read off the table
+        // as it is now: a span the file lets run past the last column is no merge to the model.
+        let anchor_moved = row.cells.get(at).is_some_and(|c| c.grid_span > 1 && !c.is_covered());
         if let Some(cell) = row.cells.get_mut(if anchor_moved { at + 1 } else { at }) {
             copy_cell_format(cell, &tpl);
         }

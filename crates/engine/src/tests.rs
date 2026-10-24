@@ -7930,3 +7930,25 @@ fn reused_slides_take_the_presentations_header_footer_settings() {
     assert!(ph(&s, 1, deckcraft_model::PhType::SlideNum), "reused slide has the number");
     assert!(!ph(&s, 1, deckcraft_model::PhType::Date), "no date was asked for");
 }
+
+/// A span a file lets run past the last column is no merge to the model, so inserting left of
+/// that cell adds a plain column: the cell keeps its text and the new one gets its formatting.
+#[test]
+fn table_insert_column_left_of_an_overflowing_span_keeps_the_text() {
+    let mut s = session();
+    let id = table_at(&mut s, &[100.0, 100.0, 100.0], json!([["a", "b", "wide"], ["d", "e", "f"]]));
+    {
+        let doc = std::sync::Arc::make_mut(&mut s.doc_mut().unwrap().doc);
+        let slide = std::sync::Arc::make_mut(&mut doc.slides[0]);
+        let sh = deckcraft_model::find_shape_mut(&mut slide.shapes, id).unwrap();
+        let deckcraft_model::ShapeKind::Table(t) = &mut sh.kind else { panic!("a table") };
+        t.cell_mut(0, 2).unwrap().grid_span = 4;
+    }
+    s.execute("table.cellFill", &json!({"id": id.0, "color": "#FF0000", "cells": [[0, 2]]})).unwrap();
+    s.execute("table.insertColumnLeft", &json!({"id": id.0, "col": 2})).unwrap();
+    let t = table_of(&s, id);
+    assert_eq!(t.n_cols(), 4);
+    assert_eq!(t.cell(0, 3).unwrap().text.text(), "wide", "the cell keeps its text");
+    assert_eq!(t.cell(0, 2).unwrap().text.text(), "");
+    assert_eq!(t.cell(0, 2).unwrap().fill, t.cell(0, 3).unwrap().fill, "the new cell takes the neighbour's fill");
+}
