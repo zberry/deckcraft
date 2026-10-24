@@ -557,6 +557,35 @@ fn batch_items_can_reference_earlier_results() {
     assert!(bad["result"]["isError"] == true && text.contains("$nope"), "{text}");
 }
 
+/// A stand-in for the desktop app: records the control-channel calls and answers `ui.screenshot`
+/// as the app does (a base64 PNG, or `{path, width, height}` once a path is given).
+struct FakeApp {
+    calls: std::rc::Rc<std::cell::RefCell<Vec<(String, Value)>>>,
+}
+
+impl crate::backend::Backend for FakeApp {
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        self.calls.borrow_mut().push((method.to_string(), params.clone()));
+        match method {
+            "ui.screenshot" => Ok(match params.get("path").and_then(Value::as_str) {
+                Some(p) => json!({"path": p, "width": 1280, "height": 800}),
+                None => json!({"png": "iVBORw0KGgo=", "width": 1280, "height": 800}),
+            }),
+            "ui.key" => Ok(json!({"handled": true})),
+            "engine.execute" if params["command"] == "edit.selection" => {
+                Ok(json!({"slide": 0, "ids": [7], "selected": [{"id": 7, "rect": [1.0, 2.0, 3.0, 4.0]}]}))
+            }
+            other => Err(format!("unknown method `{other}`")),
+        }
+    }
+    fn has_ui(&self) -> bool {
+        true
+    }
+    fn describe(&self) -> String {
+        "stand-in app".into()
+    }
+}
+
 /// W4: `screenshot` answered image content only, which an agent behind a text bridge cannot see.
 /// With `path` the PNG is written there and the answer is text `{path, width, height}`; headless
 /// still refuses clearly and writes nothing. (The connected backend is a loopback socket; the
