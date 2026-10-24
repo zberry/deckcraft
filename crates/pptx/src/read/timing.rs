@@ -1,7 +1,7 @@
 //! Slide transitions (`p:transition`) and animations (`p:timing`).
 
 use deckcraft_model::anim::{AnimClass, AnimStart, Animation, BuildRole, TextBuild, Transition, build_filled, paragraph_build_roles};
-use deckcraft_model::{Shape, TextBody, find_shape};
+use deckcraft_model::{Shape, ShapeId, ShapeKind, TextBody, find_shape, find_shape_mut};
 
 use super::shapes::IdCtx;
 use super::{Imp, Part, dml};
@@ -69,6 +69,13 @@ fn collect<'a>(e: &'a El, trigger: Option<u32>, out: &mut Vec<Found<'a>>, depth:
             && let Some(ctn) = c.child("cTn")
             && ctn.attr("nodeType") == Some("interactiveSeq")
         {
+            // Only a click starts a button sequence we can write back. A media bookmark
+            // (`onMediaBookmark`) or other start has no model: leave its effects out rather
+            // than save them as clicks on the media shape (#362).
+            if ctn.path(&["stCondLst", "cond"]).and_then(|c| c.attr("evt")).is_some_and(|evt| evt != "onClick") {
+                log::warn!("pptx: an animation sequence with a start other than a click was left out");
+                continue;
+            }
             trig = ctn.path(&["stCondLst", "cond", "tgtEl", "spTgt"]).and_then(|s| s.u32("spid"));
         }
         collect(c, trig, out, depth + 1);
@@ -224,4 +231,54 @@ fn plays_as_build(effects: &[&Animation], text: &TextBody) -> bool {
         matched = k + 1;
     }
     matched == effects.len()
+}
+
+fn media_nodes<'a>(e: &'a El, out: &mut Vec<&'a El>, depth: usize) {
+    if depth > 64 || out.len() > 1000 {
+        return;
+    }
+    for c in e.elements() {
+        if c.is("audio") || c.is("video") {
+            out.push(c);
+        } else {
+            media_nodes(c, out, depth + 1);
+        }
+    }
+}
+
+/// Playback options of the slide's media (issue #74): the `p:audio`/`p:video` nodes carry volume,
+/// loop, rewind, play across slides, hide while not playing and full screen; "Start:
+/// Automatically" is a leading Play effect that is not a click, which becomes the clip's
+/// `autoplay` instead of an Animation Pane row.
+pub fn media_options(ctx: &IdCtx, timing: &El, shapes: &mut [Shape], anims: &mut Vec<Animation>) {
+    use deckcraft_model::anim::AnimStart;
+    let is_media = |shapes: &[Shape], id: ShapeId| matches!(deckcraft_model::find_shape(shapes, id).map(|s| &s.kind), Some(ShapeKind::Media(_)));
+    let lead = anims
+        .iter()
+        .take_while(|a| {
+            a.class == AnimClass::Media && a.effect == "play" && a.start != AnimStart::OnClick && a.trigger.is_none() && is_media(shapes, a.shape)
+        })
+        .count();
+    for a in anims.drain(..lead).collect::<Vec<_>>() {
+        if let Some(ShapeKind::Media(m)) = find_shape_mut(shapes, a.shape).map(|s| &mut s.kind) {
+            m.autoplay = true;
+        }
+    }
+    let Some(tn) = timing.child("tnLst") else { return };
+    let mut nodes = vec![];
+    media_nodes(tn, &mut nodes, 0);
+    for n in nodes {
+        let Some(id) = n.path(&["cMediaNode", "tgtEl", "spTgt"]).and_then(|t| t.u32("spid")).and_then(|f| ctx.lookup(f)) else { continue };
+        let Some(ShapeKind::Media(m)) = find_shape_mut(shapes, id).map(|s| &mut s.kind) else { continue };
+        let Some(cm) = n.child("cMediaNode") else { continue };
+        // `vol` defaults to 50% in the schema; a missing node leaves the clip at full volume.
+        m.volume = if cm.bool("mute").unwrap_or(false) { 0.0 } else { cm.f64("vol").map(|v| (v / 100_000.0).clamp(0.0, 1.0)).unwrap_or(0.5) };
+        m.hide_while_not_playing = cm.bool("showWhenStopped") == Some(false);
+        m.play_across_slides = cm.u32("numSld").is_some_and(|n| n > 1);
+        m.full_screen = n.bool("fullScrn").unwrap_or(false);
+        if let Some(c) = cm.child("cTn") {
+            m.loop_play = c.attr("repeatCount") == Some("indefinite");
+            m.rewind = c.attr("fill") == Some("remove");
+        }
+    }
 }

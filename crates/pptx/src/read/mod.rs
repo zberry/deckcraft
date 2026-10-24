@@ -1133,6 +1133,7 @@ fn read_slide(imp: &mut Imp, part: &Part, doc: &Doc, id: SlideId, layout: Layout
     }
     if let Some(t) = root.child("timing") {
         s.animations = timing::animations(imp, part, &ctx, t, &s.shapes);
+        timing::media_options(&ctx, t, &mut s.shapes, &mut s.animations);
     }
     if let Some(ext) = root.child("extLst").filter(|e| !has_rel_refs(e)) {
         s.raw_ext = Some(ext.elements().map(|e| part.keep(e)).collect());
@@ -1210,6 +1211,7 @@ fn read_show(sp: &El, shows: &HashMap<String, String>) -> ShowSettings {
         without_narration: sp.bool("showNarration") == Some(false),
         without_animation: sp.bool("showAnimation") == Some(false),
         use_timings: sp.bool("useTimings").unwrap_or(true),
+        show_media_controls: sp.find("showMediaCtrls").and_then(|e| e.bool("val")).unwrap_or(true),
         ..Default::default()
     };
     if sp.child("browse").is_some() {
