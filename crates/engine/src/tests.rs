@@ -6675,3 +6675,12 @@ fn save_to_image_path_is_an_error_not_zip_bytes() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The frames export promises its earlier files only for a failure while writing the new ones:
+/// a failed removal of the earlier ones afterwards leaves the new frames in place.
+#[test]
+fn export_doc_limits_the_kept_frames_promise_to_writing_failures() {
+    let doc = command_specs().iter().find(|c| c.id == "file.export").unwrap().params;
+    assert!(doc.contains("kept when writing the new ones fails"), "{doc}");
+    assert!(!doc.contains("kept when the export fails"), "{doc}");
+}
